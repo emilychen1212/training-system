@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Outfit:wght@500;700;800&display=swap" rel="stylesheet">
+  <?!= include('Styles'); ?>
+</head>
+<body>
+  <div id="boot" data-initial="<?= initial ?>" hidden></div>
+
+  <div class="app">
+    <aside class="side">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"></div>
+        <div>
+          <div class="brand-name">飛資得講習站</div>
+          <div class="brand-sub">TRAINING DESK</div>
+        </div>
+      </div>
+      <nav class="nav" aria-label="主選單">
+        <button type="button" class="on" data-nav="list">課程列表</button>
+        <button type="button" disabled>行事曆 <span class="soon">第 2 階段</span></button>
+        <button type="button" disabled>公版問卷 <span class="soon">第 2 階段</span></button>
+        <button type="button" disabled>成效統計 <span class="soon">第 3 階段</span></button>
+      </nav>
+      <div class="side-foot">
+        資料存放：Google 試算表<br>僅你的帳號可讀取<br>
+        <a id="sheetLink" href="#" target="_blank" rel="noopener">開啟試算表 ↗</a>
+      </div>
+    </aside>
+    <main id="main"><div class="loading">載入中…</div></main>
+  </div>
+
+  <section id="raffle" class="raffle" hidden aria-label="抽獎畫面"></section>
+
+  <dialog id="courseDialog" aria-labelledby="courseDialogTitle">
+    <form id="courseForm" method="dialog" novalidate>
+      <div class="dialog-body">
+        <h2 id="courseDialogTitle">新增課程</h2>
+        <label class="field"><span>課程名稱 *</span><input class="input" name="title" maxlength="80" required></label>
+        <div class="grid2">
+          <label class="field"><span>日期 *</span><input class="input" type="date" name="date" required></label>
+          <label class="field"><span>開始時間</span><input class="input" type="time" name="start_time"></label>
+        </div>
+        <div class="grid2">
+          <label class="field"><span>機構名稱</span><input class="input" name="org_name" maxlength="60" placeholder="例：○○大學 圖書館"></label>
+          <label class="field"><span>地點</span><input class="input" name="location" maxlength="60" placeholder="例：視聽教室 B1"></label>
+        </div>
+        <div class="field">
+          <span>機構類型</span>
+          <div class="seg" id="orgTypes" role="group" aria-label="機構類型"></div>
+        </div>
+        <div class="field">
+          <span>產品標籤</span>
+          <div class="seg" id="tagChips" role="group" aria-label="產品標籤"></div>
+          <div class="row">
+            <input class="input grow" id="newTag" maxlength="20" placeholder="新增其他標籤">
+            <button type="button" class="btn" id="addTag">加入</button>
+          </div>
+        </div>
+        <label class="field"><span>實到人數（課後填，用來算回收率）</span><input class="input" type="number" min="0" max="5000" name="attendees"></label>
+        <div class="field">
+          <span>抽獎獎品（不辦抽獎就留空）</span>
+          <div id="prizeRows" class="stack" style="gap:8px"></div>
+          <button type="button" class="dashed" id="addPrize">＋ 新增獎項</button>
+        </div>
+        <div class="form-error" id="formError" role="alert"></div>
+      </div>
+      <div class="dialog-foot">
+        <button type="button" class="btn" id="cancelCourse">取消</button>
+        <button type="submit" class="btn btn-blue" id="saveCourse">儲存</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="confirmDialog" aria-labelledby="confirmTitle">
+    <form method="dialog">
+      <div class="dialog-body">
+        <h2 id="confirmTitle"></h2>
+        <p id="confirmText" style="margin:0"></p>
+        <label class="field" id="confirmTypeWrap"><span id="confirmTypeLabel"></span><input class="input" id="confirmType" autocomplete="off"></label>
+      </div>
+      <div class="dialog-foot">
+        <button type="button" class="btn" id="confirmCancel">取消</button>
+        <button type="button" class="btn btn-blue" id="confirmOk">確定</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+  <?!= include('Scripts'); ?>
+</body>
+</html>

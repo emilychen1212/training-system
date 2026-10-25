@@ -1,0 +1,42 @@
+:root {
+  --navy: #12305C;
+  --navy-2: #1A3D70;
+  --blue: #1E5FB4;
+  --blue-soft: #E6EEF9;
+  --ground: #F5F7FB;
+  --line: #D9E2EF;
+  --muted: #5A6B85;
+  --orange: #F28A1E;
+  --orange-deep: #C86A0E;
+  --orange-ink: #B4560A;
+  --orange-soft: #FFF8F0;
+  --orange-line: #F6D3AE;
+  --danger: #B42318;
+  --font: "Noto Sans TC", system-ui, -apple-system, "PingFang TC", sans-serif;
+  --num: "Outfit", "Noto Sans TC", sans-serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--ground); color: var(--navy); font: 16px/1.6 var(--font); }
+button, input, textarea { font: inherit; color: inherit; }
+a { color: var(--blue); }
+[hidden] { display: none !important; }
+.num { font-family: var(--num); }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+
+.brand-mark { position: relative; width: 36px; height: 36px; border-radius: 10px; background: var(--blue); flex: none; }
+.brand-mark::after { content: ""; position: absolute; right: -5px; top: -5px; width: 14px; height: 14px; border-radius: 50%; background: var(--orange); }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 18px;
+  border-radius: 12px; border: 1px solid var(--line); background: #fff; color: var(--navy); font-weight: 700;
+  cursor: pointer; text-decoration: none; transition: transform .12s, box-shadow .12s; white-space: nowrap; }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn-navy { background: var(--navy); border-color: var(--navy); color: #fff; }
+
+.center-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px; }
+.notice { text-align: center; max-width: 420px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.notice h1 { margin: 16px 0 0; font-size: 26px; font-weight: 900; }
+.notice p { margin: 0; color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001s !important; animation-iteration-count: 1 !important; transition-duration: .001s !important; }
+}

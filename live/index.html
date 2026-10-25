@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>課堂投影｜飛資得講習站</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Outfit:wght@500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/base.css">
+  <style>
+    html, body { height: 100%; }
+    body { display: flex; flex-direction: column; min-height: 100vh; overflow-x: hidden; }
+    .bar { display: flex; align-items: center; gap: 14px; padding: 18px 48px; background: #fff; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+    .bar .brand-mark { width: 32px; height: 32px; }
+    .bar .brand-mark::after { width: 12px; height: 12px; }
+    .bar-title { font-weight: 900; font-size: 18px; }
+    .bar-meta { color: var(--muted); font-size: 15px; }
+    .bar .grow { flex: 1; }
+
+    .stage { position: relative; flex: 1; overflow: hidden; display: grid; grid-template-columns: 1fr auto; gap: 4vw;
+      align-items: center; padding: 4vh 6vw 6vh 4.5vw; }
+    .stage::before { content: ""; position: absolute; left: -10vw; bottom: -22vw; width: 30vw; height: 30vw; border-radius: 50%; background: var(--blue-soft); }
+    .left, .right { position: relative; }
+
+    .status { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 16px; border-radius: 99px;
+      background: var(--blue); color: #fff; font-weight: 700; font-size: 16px; }
+    .status::before { content: ""; width: 12px; height: 12px; border-radius: 50%; background: #fff; }
+    .status.closed { background: var(--blue-soft); color: var(--muted); }
+    .status.closed::before { background: var(--muted); }
+    .status.draft { background: var(--orange); color: var(--navy); }
+    .status.draft::before { background: var(--navy); }
+
+    h1 { margin: 3vh 0 2vh; font-size: clamp(40px, 4.75vw, 76px); font-weight: 900; line-height: 1.25; letter-spacing: .01em; }
+    h1 em { font-style: normal; color: var(--blue); }
+    h1 .ring { display: inline-block; width: .34em; height: .34em; border-radius: 50%; border: .09em solid var(--orange); margin-left: .25em; vertical-align: .12em; }
+    .lead { font-size: clamp(18px, 1.6vw, 26px); color: var(--muted); margin: 0 0 4vh; }
+
+    .cards { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.75fr); gap: 18px; max-width: 960px; }
+    .card { background: #fff; border: 1px solid var(--line); border-radius: 22px; padding: 22px 28px; min-height: 140px; }
+    .big { font-family: var(--num); font-weight: 800; font-size: clamp(44px, 3.8vw, 60px); line-height: 1.05; color: var(--blue); overflow: hidden; height: 1.1em; }
+    .big.orange { color: var(--orange-ink); }
+    .big span { display: inline-block; }
+    .big .flip { animation: flip .4s cubic-bezier(.2, .9, .3, 1.2); }
+    @keyframes flip { from { transform: translateY(70%); opacity: 0; } to { transform: none; opacity: 1; } }
+    .card-label { color: var(--muted); font-size: 17px; margin-top: 8px; }
+    .prizes { background: var(--orange-soft); border-color: var(--orange-line); }
+    .prizes b { display: block; color: var(--orange-ink); font-size: 15px; margin-bottom: 8px; }
+    .prizes ul { margin: 0; padding: 0; list-style: none; font-weight: 900; font-size: clamp(17px, 1.4vw, 22px); line-height: 1.75; }
+    .prizes .done { color: var(--muted); font-weight: 700; font-size: .8em; margin-left: 8px; }
+    .updated { margin-top: 3vh; color: var(--muted); font-size: 15px; }
+
+    .qr-card { position: relative; background: #fff; border: 1px solid var(--line); border-radius: 28px; padding: 40px 50px 36px; text-align: center; }
+    .scan { font-family: var(--num); font-size: 14px; letter-spacing: .25em; color: var(--muted); }
+    .qr { width: min(30vw, 52vh); height: min(30vw, 52vh); margin: 20px auto 18px; }
+    .qr svg { width: 100%; height: 100%; display: block; }
+    .short { font-family: var(--num); font-weight: 700; font-size: clamp(14px, 1.15vw, 18px); word-break: break-all; }
+    .tag { position: absolute; right: -16px; top: -18px; background: var(--orange); color: var(--navy); font-weight: 900; font-size: 17px;
+      padding: 8px 16px; border-radius: 99px; transform: rotate(6deg); animation: wobble 6s infinite; }
+    @keyframes wobble { 0%, 92%, 100% { transform: rotate(6deg); } 94% { transform: rotate(-4deg); } 96% { transform: rotate(10deg); } 98% { transform: rotate(2deg); } }
+    .closed-qr .qr { opacity: .25; }
+
+    .message { margin: auto; text-align: center; padding: 40px 20px; }
+    .message h1 { font-size: 40px; }
+
+    @media (max-width: 900px) {
+      .bar { padding: 14px 16px; }
+      .stage { grid-template-columns: 1fr; padding: 24px 16px 40px; }
+      .cards { grid-template-columns: 1fr 1fr; }
+      .cards .prizes { grid-column: 1 / -1; }
+      .qr { width: min(70vw, 320px); height: min(70vw, 320px); }
+      .qr-card { padding: 28px 20px; }
+      .tag { right: 8px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="bar">
+    <div class="brand-mark" aria-hidden="true"></div>
+    <div class="bar-title" id="barTitle">飛資得講習站</div>
+    <div class="bar-meta" id="barMeta"></div>
+    <div class="grow"></div>
+    <button type="button" class="btn" id="fullBtn">全螢幕</button>
+    <a class="btn btn-navy" id="raffleBtn" hidden>講師抽獎</a>
+  </header>
+  <main class="stage" id="stage">
+    <div class="message"><p class="lead">載入中…</p></div>
+  </main>
+
+  <script src="../config.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var h = TS.h;
+    var code = TS.code();
+    var stage = document.getElementById('stage');
+    var url = TS.surveyUrl(code);
+    var view = null;
+
+    document.getElementById('fullBtn').addEventListener('click', function () {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
+    });
+    document.addEventListener('fullscreenchange', function () {
+      document.getElementById('fullBtn').textContent = document.fullscreenElement ? '離開全螢幕' : '全螢幕';
+    });
+    if (TS.adminUrl && /^\d{4}-\d{6}$/.test(code)) {
+      var raffleBtn = document.getElementById('raffleBtn');
+      raffleBtn.href = TS.adminUrl + (TS.adminUrl.indexOf('?') < 0 ? '?' : '&') + 'page=raffle&c=' + encodeURIComponent(code);
+      raffleBtn.hidden = false;
+    }
+
+    function message(title, text) {
+      view = null;
+      TS.fill(stage, h('div', { class: 'message' }, h('h1', { text: title }), text ? h('p', { class: 'lead', text: text }) : null));
+    }
+
+    function counter(cls) {
+      var el = h('div', { class: 'big ' + (cls || '') }, h('span', { text: '0' }));
+      el.value = null;
+      el.set = function (n) {
+        if (el.value === n) return;
+        var first = el.value === null;
+        el.value = n;
+        el.replaceChildren(h('span', { class: first ? '' : 'flip', text: String(n) }));
+      };
+      return el;
+    }
+
+    function build(d) {
+      view = {
+        status: h('span', { class: 'status' }),
+        title: h('h1'),
+        lead: h('p', { class: 'lead' }),
+        responses: counter(),
+        entries: counter('orange'),
+        prizeCard: h('div', { class: 'card prizes' }),
+        entryCard: null,
+        updated: h('div', { class: 'updated' }),
+        qrCard: h('div', { class: 'qr-card' },
+          h('div', { class: 'tag', text: '掃我！' }),
+          h('div', { class: 'scan', text: 'SCAN・匿名填答' }),
+          h('div', { class: 'qr' }, TS.qrSvg(url)),
+          h('div', { class: 'short', text: url.replace(/^https?:\/\//, '') }))
+      };
+      view.entryCard = h('div', { class: 'card' }, view.entries, h('div', { class: 'card-label', text: '人登記抽獎' }));
+      TS.fill(stage,
+        h('div', { class: 'left' },
+          view.status, view.title, view.lead,
+          h('div', { class: 'cards' },
+            h('div', { class: 'card' }, view.responses, h('div', { class: 'card-label', text: '份課程回饋' })),
+            view.entryCard,
+            view.prizeCard),
+          view.updated),
+        h('div', { class: 'right' }, view.qrCard));
+    }
+
+    function render(d) {
+      document.getElementById('barTitle').textContent = d.title;
+      document.getElementById('barMeta').textContent = [d.org_name, TS.formatDate(d.date)].filter(Boolean).join('・');
+      document.title = d.title + '｜課堂投影';
+      if (!view) build(d);
+
+      var hasPrizes = d.prizes && d.prizes.length > 0;
+      view.status.className = 'status ' + d.status;
+      view.status.textContent = { open: '問卷開放中', closed: '問卷已截止', draft: '問卷尚未開放' }[d.status];
+      view.qrCard.classList.toggle('closed-qr', d.status === 'closed');
+      TS.fill(view.title, d.status === 'closed'
+        ? ['謝謝大家，', h('br'), '回饋', h('em', { text: '收到了' }), h('span', { class: 'ring', 'aria-hidden': 'true' })]
+        : ['花一分鐘，', h('br'), '留下你的', h('em', { text: '回饋' }), h('span', { class: 'ring', 'aria-hidden': 'true' })]);
+      view.lead.textContent = d.status === 'open'
+        ? '掃描右側 QR Code' + (hasPrizes ? '，完成後可登記課後抽獎。' : '，約 1 分鐘就能完成。')
+        : d.status === 'closed' ? (hasPrizes ? '填答已截止，抽獎馬上開始！' : '填答已截止，謝謝你的參與。') : '講師開放後就能掃碼填答。';
+
+      view.responses.set(d.response_count);
+      view.entries.set(d.entry_count);
+      view.entryCard.hidden = !hasPrizes;
+      view.prizeCard.hidden = !hasPrizes;
+      if (hasPrizes) {
+        TS.fill(view.prizeCard, h('b', { text: '今天的課後小驚喜' }), h('ul', null, d.prizes.map(function (p) {
+          return h('li', null, p.name + ' × ' + p.qty, p.drawn ? h('span', { class: 'done', text: '已抽出 ' + p.drawn }) : null);
+        })));
+      }
+      var now = new Date();
+      view.updated.textContent = '每 15 秒自動更新・' + ('0' + now.getHours()).slice(-2) + ':' + ('0' + now.getMinutes()).slice(-2) + ' 更新';
+    }
+
+    function refresh() {
+      return TS.api('getLive', { survey_code: code }).then(function (d) {
+        if (!d.ok) {
+          if (d.error === 'NETWORK' && view) {
+            view.updated.textContent = '連線中斷，稍後自動重試…';
+            return;
+          }
+          message(d.error === 'NOT_FOUND' ? '找不到這堂課' : '暫時無法載入', d.error === 'NOT_CONFIGURED' ? '網站還沒設定 API 網址。' : '請確認網址是否正確。');
+          return;
+        }
+        if (d.status === 'draft' && !d.date) {
+          view = null;
+          document.getElementById('barTitle').textContent = d.title;
+          message('問卷尚未開放', '請到後台按「開放填答」，這個畫面會自動更新。');
+          return;
+        }
+        render(d);
+      });
+    }
+
+    if (!/^\d{4}-\d{6}$/.test(code)) {
+      message('找不到這堂課', '請從後台的「開啟投影畫面」進來。');
+      return;
+    }
+    refresh();
+    setInterval(function () { if (!document.hidden) refresh(); }, 15000);
+  })();
+  </script>
+</body>
+</html>

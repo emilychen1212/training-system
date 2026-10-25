@@ -1,0 +1,4 @@
+# clasp 專案設定與只在本機用的初始化檔（含試算表 ID、API 網址），不放上公開 repo
+.clasp.json
+LocalSetup.gs
+.DS_Store

@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <title>課後回饋｜飛資得講習站</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Outfit:wght@500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/base.css">
+  <style>
+    body { background: var(--ground); }
+    .wrap { max-width: 480px; margin: 0 auto; min-height: 100vh; background: var(--ground); }
+
+    .top { position: relative; overflow: hidden; background: var(--navy); color: #fff; padding: 28px 22px 34px; }
+    .top::before { content: ""; position: absolute; right: -36px; top: -36px; width: 120px; height: 120px; border-radius: 50%; background: var(--blue); }
+    .top::after { content: ""; position: absolute; right: 30px; top: 58px; width: 18px; height: 18px; border-radius: 50%; background: var(--orange); }
+    .top > * { position: relative; z-index: 1; }
+    .eyebrow { font-family: var(--num); font-size: 11px; letter-spacing: .2em; color: #A9C1E6; }
+    .top h1 { margin: 10px 56px 6px 0; font-size: 24px; font-weight: 900; line-height: 1.4; }
+    .top .meta { font-size: 13px; color: #D6E3F5; }
+    .chips { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+    .chips span { font-size: 12px; background: var(--navy-2); border-radius: 99px; padding: 4px 10px; }
+
+    .body { padding: 18px 18px 40px; display: flex; flex-direction: column; gap: 14px; }
+    .progress { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+    .bar { flex: 1; height: 6px; border-radius: 99px; background: var(--line); overflow: hidden; }
+    .bar i { display: block; height: 100%; width: 0; background: var(--orange); border-radius: 99px; transition: width .3s; }
+
+    .q { background: #fff; border-radius: 18px; padding: 18px; border: 1px solid var(--line); scroll-margin-top: 16px; }
+    .q.missing { border-color: var(--orange); }
+    .q-tag { font-size: 12px; font-weight: 700; color: var(--muted); }
+    .q-tag.req { color: var(--orange-ink); }
+    .q-label { display: block; font-size: 16px; font-weight: 700; margin: 6px 0 14px; line-height: 1.5; }
+
+    .rating { display: flex; justify-content: space-between; gap: 8px; }
+    .rating button { flex: 1; max-width: 58px; aspect-ratio: 1; min-height: 48px; border-radius: 16px; border: 1px solid var(--line);
+      background: var(--ground); font-family: var(--num); font-weight: 700; font-size: 20px; cursor: pointer;
+      transition: transform .18s cubic-bezier(.3, 1.6, .5, 1), background .12s; }
+    .rating button[aria-checked="true"] { background: var(--orange); border-color: var(--orange); font-weight: 800;
+      transform: translateY(-3px); box-shadow: 0 6px 0 var(--orange-deep); }
+    .ends { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--muted); margin-top: 10px; }
+
+    .choices { display: flex; flex-direction: column; gap: 8px; }
+    .choices.two { flex-direction: row; }
+    .choices.two button { flex: 1; justify-content: center; }
+    .choice { display: flex; align-items: center; gap: 10px; min-height: 48px; border-radius: 14px; border: 1px solid var(--line);
+      background: #fff; text-align: left; padding: 10px 16px; cursor: pointer; line-height: 1.4; }
+    .choice::before { content: ""; flex: none; width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--muted); }
+    .choice.box::before { border-radius: 5px; }
+    .choice[aria-checked="true"] { border: 2px solid var(--blue); background: var(--blue-soft); font-weight: 700; padding: 9px 15px; }
+    .choice[aria-checked="true"]::before { border-color: var(--navy); background: var(--navy); box-shadow: inset 0 0 0 3px var(--blue-soft); }
+    .choices.two .choice::before { display: none; }
+
+    textarea, .input { width: 100%; border-radius: 12px; border: 1px solid var(--line); padding: 12px; font-size: 16px; background: var(--ground); }
+    textarea { resize: vertical; min-height: 96px; }
+    .count { text-align: right; font-size: 12px; color: var(--muted); margin-top: 6px; }
+
+    .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+    .fine { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .error { color: var(--danger); font-weight: 700; font-size: 14px; min-height: 1.2em; }
+
+    .submit { height: 54px; width: 100%; border-radius: 16px; border: 0; background: var(--blue); color: #fff; font-size: 17px; font-weight: 900;
+      cursor: pointer; box-shadow: 0 5px 0 var(--navy); margin-bottom: 5px; transition: transform .1s, box-shadow .1s; }
+    .submit.main { background: var(--orange); color: var(--navy); box-shadow: 0 5px 0 var(--orange-deep); }
+    .submit:active:not(:disabled), .submit.busy { transform: translateY(5px); box-shadow: 0 0 0 transparent; }
+    .submit:disabled:not(.busy) { opacity: .5; cursor: not-allowed; }
+    .dots { display: inline-flex; gap: 6px; vertical-align: middle; }
+    .dots i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: hop .9s infinite ease-in-out; }
+    .dots i:nth-child(2) { animation-delay: .15s; }
+    .dots i:nth-child(3) { animation-delay: .3s; }
+    @keyframes hop { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-7px); } }
+    .ghost { height: 50px; width: 100%; border-radius: 16px; border: 1px solid var(--line); background: #fff; font-weight: 700; cursor: pointer; }
+
+    .state { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 28px 22px; text-align: center; }
+    .state h2 { margin: 12px 0 6px; font-size: 22px; font-weight: 900; }
+    .state p { margin: 0; color: var(--muted); }
+    .check { position: relative; width: 84px; height: 84px; margin: 0 auto; }
+    .check svg { width: 84px; height: 84px; }
+    .check circle { fill: var(--blue-soft); }
+    .check path { fill: none; stroke: var(--blue); stroke-width: 6; stroke-linecap: round; stroke-linejoin: round;
+      stroke-dasharray: 60; stroke-dashoffset: 60; animation: draw .4s .1s ease-out forwards; }
+    .check i { position: absolute; right: 0; top: 4px; width: 16px; height: 16px; border-radius: 50%; background: var(--orange); animation: bounce .4s .45s both; }
+    @keyframes draw { to { stroke-dashoffset: 0; } }
+    @keyframes bounce { 0% { transform: scale(0); } 60% { transform: scale(1.3); } 100% { transform: scale(1); } }
+
+    .prize { background: var(--orange-soft); border: 1px solid var(--orange-line); border-radius: 18px; padding: 18px; }
+    .prize b { display: block; font-size: 13px; color: var(--orange-ink); margin-bottom: 6px; }
+    .prize ul { margin: 0; padding: 0; list-style: none; font-weight: 700; }
+    .prize li + li { margin-top: 4px; }
+    .field { display: flex; flex-direction: column; gap: 6px; font-weight: 700; font-size: 14px; }
+    .consent { display: flex; gap: 12px; align-items: flex-start; font-size: 14px; line-height: 1.6; cursor: pointer; }
+    .consent input { width: 22px; height: 22px; margin: 2px 0 0; flex: none; accent-color: var(--blue); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <div class="eyebrow">ONE-MINUTE FEEDBACK</div>
+      <h1 id="title">課後回饋</h1>
+      <div class="meta" id="meta"></div>
+      <div class="chips"><span>約 1 分鐘</span><span>匿名填答</span></div>
+    </header>
+    <main class="body" id="body" aria-live="polite">
+      <div class="fine">載入中…</div>
+    </main>
+  </div>
+
+  <script src="../config.js"></script>
+  <script src="../assets/app.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var h = TS.h;
+    var code = TS.code();
+    var body = document.getElementById('body');
+    var survey = null;
+    var answers = {};
+    var startedAt = 0;
+    var saved = TS.store.get('done:' + code) || null;
+
+    var CONSENT = '我同意提供姓名與 Email，僅用於本次抽獎與得獎聯繫，活動結束後 30 天內刪除。';
+    var ERR = {
+      NETWORK: '網路好像不太穩，請再按一次。',
+      NOT_CONFIGURED: '網站還沒設定完成，請告訴講師。',
+      NOT_FOUND: '請確認 QR Code 或網址是否正確。',
+      TOO_FAST: '填得有點快，請再確認一下題目後送出。',
+      CLOSED: '問卷已經截止了，謝謝你。',
+      NOT_OPEN: '問卷還沒開放。',
+      FULL: '這堂課的名額已滿，謝謝你。',
+      REQUIRED: '還有必填題沒有填。',
+      INVALID: '有題目的答案不正確，請重新選一次。',
+      TOO_LONG: '文字最多 500 字。',
+      BUSY: '現在填答的人很多，請再按一次。',
+      DUPLICATE: '這個 Email 已經登記過這堂課的抽獎囉，不用再登記一次。',
+      INVALID_EMAIL: 'Email 格式好像不對，請再確認一下。',
+      INVALID_NAME: '姓名請填 1～30 個字。',
+      CONSENT_REQUIRED: '請先勾選同意，才能登記抽獎。',
+      BAD_TOKEN: '抽獎登記失敗，請重新整理後再試一次。',
+      TOKEN_EXPIRED: '抽獎登記的時間已經過了。',
+      TOKEN_USED: '這份問卷已經登記過抽獎了。',
+      NO_RAFFLE: '這堂課的抽獎已經結束。',
+      SERVER_ERROR: '系統出了點問題，請稍後再試。'
+    };
+    function errText(code) { return ERR[code] || ERR.SERVER_ERROR; }
+
+    function setHeader(s) {
+      document.getElementById('title').textContent = s.title || '課後回饋';
+      document.getElementById('meta').textContent = [TS.formatDate(s.date), s.org_name].filter(Boolean).join('・');
+      if (s.title) document.title = s.title + '｜課後回饋';
+    }
+
+    function state(title, text, extra) {
+      TS.fill(body, h('div', { class: 'state' }, h('h2', { text: title }), text ? h('p', { text: text }) : null), extra || null);
+    }
+
+    function footNote() {
+      return h('div', { class: 'fine', text: '問卷不蒐集姓名與 Email。送出後可另外登記抽獎，兩者分開保存。請勿填寫病患資料。' });
+    }
+
+    // ---------- 載入 ----------
+
+    if (!/^\d{4}-\d{6}$/.test(code)) {
+      state('找不到這份問卷', '請確認 QR Code 或網址是否正確。');
+      return;
+    }
+    TS.api('getSurvey', { survey_code: code }).then(function (res) {
+      if (!res.ok) {
+        state(res.error === 'NOT_FOUND' ? '找不到這份問卷' : '暫時打不開問卷', errText(res.error),
+          res.error === 'NETWORK' ? reloadBtn() : null);
+        return;
+      }
+      survey = res;
+      setHeader(res);
+      if (saved && saved.submitted) return showThanks();
+      if (res.status === 'draft') return state('問卷尚未開放', '講師開放後就能填答，請稍後再試一次。', reloadBtn());
+      if (res.status === 'closed') return state('問卷已截止', '這堂課的回饋已經結束收件，謝謝你的參與！');
+      renderForm();
+    });
+
+    function reloadBtn() {
+      return h('button', { type: 'button', class: 'ghost', text: '重新整理', onclick: function () { location.reload(); } });
+    }
+
+    // ---------- 問卷 ----------
+
+    var progressBar, progressText, submitBtn, errorBox;
+
+    function renderForm() {
+      progressBar = h('i');
+      progressText = h('span');
+      errorBox = h('div', { class: 'error', role: 'alert' });
+      submitBtn = h('button', { type: 'submit', class: 'submit', text: '送出回饋 →' });
+      var hp = h('input', { type: 'text', name: 'website', tabindex: '-1', autocomplete: 'off', id: 'website' });
+
+      var form = h('form', { novalidate: true, onsubmit: submit },
+        h('div', { class: 'progress' }, h('div', { class: 'bar' }, progressBar), progressText),
+        survey.questions.map(renderQuestion),
+        h('div', { class: 'hp', 'aria-hidden': 'true' }, h('label', { for: 'website', text: '請勿填寫' }), hp),
+        footNote(),
+        errorBox,
+        submitBtn);
+      form.style.display = 'contents';
+      TS.fill(body, form);
+      updateProgress();
+      startedAt = Date.now();
+    }
+
+    function renderQuestion(q, i) {
+      var labelId = 'label-' + q.id;
+      var head = [
+        h('div', { class: 'q-tag' + (q.required ? ' req' : ''), text: 'Q' + (i + 1) + '・' + (q.required ? '必填' : '選填') }),
+        h('div', { class: 'q-label', id: labelId, text: q.label })
+      ];
+      var card = h('div', { class: 'q', id: 'q-' + q.id }, head);
+
+      if (q.type === 'rating') {
+        var group = h('div', { class: 'rating', role: 'radiogroup', 'aria-labelledby': labelId });
+        [1, 2, 3, 4, 5].forEach(function (n) {
+          group.appendChild(h('button', { type: 'button', role: 'radio', 'aria-checked': 'false', 'aria-label': n + ' 分', text: String(n),
+            onclick: function () { pick(q, n, group); } }));
+        });
+        card.appendChild(group);
+        var ends = q.options || [];
+        if (ends.length >= 2) card.appendChild(h('div', { class: 'ends' }, h('span', { text: '1 ' + ends[0] }), h('span', { text: '5 ' + ends[1] })));
+      } else if (q.type === 'single' || q.type === 'yesno') {
+        var opts = q.type === 'yesno' ? ['是', '否'] : q.options;
+        var list = h('div', { class: 'choices' + (q.type === 'yesno' ? ' two' : ''), role: 'radiogroup', 'aria-labelledby': labelId });
+        opts.forEach(function (o) {
+          list.appendChild(h('button', { type: 'button', class: 'choice', role: 'radio', 'aria-checked': 'false', text: o,
+            onclick: function () { pick(q, o, list); } }));
+        });
+        card.appendChild(list);
+      } else if (q.type === 'multi') {
+        var boxes = h('div', { class: 'choices', role: 'group', 'aria-labelledby': labelId });
+        q.options.forEach(function (o) {
+          var btn = h('button', { type: 'button', class: 'choice box', role: 'checkbox', 'aria-checked': 'false', text: o });
+          btn.addEventListener('click', function () {
+            var cur = answers[q.id] || [];
+            var on = cur.indexOf(o) >= 0;
+            answers[q.id] = on ? cur.filter(function (x) { return x !== o; }) : cur.concat(o);
+            btn.setAttribute('aria-checked', String(!on));
+            touched(q);
+          });
+          boxes.appendChild(btn);
+        });
+        card.appendChild(h('div', { class: 'fine', style: 'margin:-8px 0 10px', text: '可複選' }));
+        card.appendChild(boxes);
+      } else if (q.type === 'text') {
+        var max = Math.min(q.maxLength || 500, 500);
+        var count = h('div', { class: 'count', text: '0 / ' + max });
+        var ta = h('textarea', { rows: '3', maxlength: String(max), placeholder: '留下您的想法', 'aria-labelledby': labelId });
+        ta.addEventListener('input', function () {
+          answers[q.id] = ta.value;
+          count.textContent = Array.from(ta.value).length + ' / ' + max;
+          touched(q);
+        });
+        card.appendChild(ta);
+        card.appendChild(count);
+      }
+      return card;
+    }
+
+    function pick(q, value, group) {
+      answers[q.id] = value;
+      [].forEach.call(group.children, function (b) {
+        var v = q.type === 'rating' ? Number(b.textContent) : b.textContent;
+        b.setAttribute('aria-checked', String(v === value));
+      });
+      touched(q);
+    }
+
+    function touched(q) {
+      document.getElementById('q-' + q.id).classList.remove('missing');
+      errorBox.textContent = '';
+      updateProgress();
+    }
+
+    function filled(q) {
+      var v = answers[q.id];
+      if (Array.isArray(v)) return v.length > 0;
+      if (typeof v === 'string') return v.trim() !== '';
+      return v !== undefined;
+    }
+
+    function updateProgress() {
+      var req = survey.questions.filter(function (q) { return q.required; });
+      var done = req.filter(filled).length;
+      progressBar.style.width = (req.length ? done / req.length * 100 : 100) + '%';
+      progressText.textContent = '完成 ' + done + ' / ' + req.length + ' 題必填';
+    }
+
+    function setBusy(btn, busy, label) {
+      btn.disabled = busy;
+      btn.classList.toggle('busy', busy);
+      if (busy) btn.replaceChildren(h('span', { class: 'dots', 'aria-label': '送出中' }, h('i'), h('i'), h('i')));
+      else btn.textContent = label;
+    }
+
+    function submit(e) {
+      e.preventDefault();
+      var missing = survey.questions.filter(function (q) { return q.required && !filled(q); });
+      if (missing.length) {
+        missing.forEach(function (q) { document.getElementById('q-' + q.id).classList.add('missing'); });
+        errorBox.textContent = '還有 ' + missing.length + ' 題必填沒有填。';
+        document.getElementById('q-' + missing[0].id).scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return;
+      }
+      var clean = {};
+      survey.questions.forEach(function (q) {
+        if (!filled(q)) return;
+        clean[q.id] = typeof answers[q.id] === 'string' ? answers[q.id].trim() : answers[q.id];
+      });
+      setBusy(submitBtn, true);
+      TS.api('submitResponse', {
+        survey_code: code,
+        answers: clean,
+        elapsed: Math.round((Date.now() - startedAt) / 1000),
+        website: document.getElementById('website').value
+      }).then(function (res) {
+        if (!res.ok) {
+          setBusy(submitBtn, false, '送出回饋 →');
+          if (res.error === 'CLOSED') return state('問卷已截止', '這堂課的回饋已經結束收件，謝謝你的參與！');
+          errorBox.textContent = errText(res.error);
+          if (res.field && document.getElementById('q-' + res.field)) {
+            document.getElementById('q-' + res.field).classList.add('missing');
+          }
+          return;
+        }
+        saved = { submitted: true, token: res.raffle_token || null, registered: false, declined: false };
+        TS.store.set('done:' + code, saved);
+        showThanks(true);
+      });
+    }
+
+    // ---------- 完成與抽獎 ----------
+
+    function checkMark() {
+      var NS = 'http://www.w3.org/2000/svg';
+      var svg = document.createElementNS(NS, 'svg');
+      svg.setAttribute('viewBox', '0 0 84 84');
+      svg.setAttribute('aria-hidden', 'true');
+      var c = document.createElementNS(NS, 'circle');
+      c.setAttribute('cx', '42'); c.setAttribute('cy', '42'); c.setAttribute('r', '40');
+      var p = document.createElementNS(NS, 'path');
+      p.setAttribute('d', 'M25 43 L37 55 L60 31');
+      svg.appendChild(c);
+      svg.appendChild(p);
+      return h('div', { class: 'check' }, svg, h('i'));
+    }
+
+    function prizeBox() {
+      return h('div', { class: 'prize' }, h('b', { text: '今天的課後小驚喜' }),
+        h('ul', null, survey.prizes.map(function (p) { return h('li', { text: p.name + ' × ' + p.qty }); })));
+    }
+
+    function canRaffle() {
+      return survey && survey.status === 'open' && survey.raffle_open && saved && saved.token && !saved.registered && !saved.declined;
+    }
+
+    function showThanks() {
+      var head = h('div', { class: 'state' }, checkMark(), h('h2', { text: '謝謝，回饋已收到！' }),
+        saved.registered ? h('p', { text: '你已經登記抽獎了，抽獎會在課堂上進行，祝你好運！' }) :
+          canRaffle() ? h('p', { text: '完成問卷就可以參加課後抽獎。' }) : h('p', { text: '祝你有美好的一天。' }));
+      if (!canRaffle()) return TS.fill(body, head);
+      TS.fill(body, head, prizeBox(),
+        h('button', { type: 'button', class: 'submit main', text: '我要參加抽獎', onclick: showRaffleForm }),
+        h('button', { type: 'button', class: 'ghost', text: '不用了，完成填答', onclick: function () {
+          saved.declined = true;
+          TS.store.set('done:' + code, saved);
+          showThanks();
+        } }));
+    }
+
+    function showRaffleForm() {
+      var name = h('input', { class: 'input', id: 'rName', maxlength: '30', autocomplete: 'name', required: true });
+      var email = h('input', { class: 'input', id: 'rEmail', type: 'email', maxlength: '100', autocomplete: 'email', inputmode: 'email', required: true });
+      var agree = h('input', { type: 'checkbox', id: 'rAgree' });
+      var err = h('div', { class: 'error', role: 'alert' });
+      var btn = h('button', { type: 'submit', class: 'submit main', text: '確認登記' });
+
+      var form = h('form', { novalidate: true, onsubmit: function (e) {
+        e.preventDefault();
+        if (!name.value.trim()) { err.textContent = '請填姓名。'; name.focus(); return; }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.value.trim())) { err.textContent = ERR.INVALID_EMAIL; email.focus(); return; }
+        if (!agree.checked) { err.textContent = ERR.CONSENT_REQUIRED; return; }
+        err.textContent = '';
+        setBusy(btn, true);
+        TS.api('registerRaffle', {
+          survey_code: code, name: name.value.trim(), email: email.value.trim(), consent: true, raffle_token: saved.token
+        }).then(function (res) {
+          setBusy(btn, false, '確認登記');
+          if (!res.ok) {
+            err.textContent = errText(res.error);
+            if (['TOKEN_USED', 'TOKEN_EXPIRED', 'NO_RAFFLE', 'CLOSED'].indexOf(res.error) >= 0) {
+              saved.declined = true;
+              TS.store.set('done:' + code, saved);
+            }
+            return;
+          }
+          saved.registered = true;
+          TS.store.set('done:' + code, saved);
+          TS.fill(body, h('div', { class: 'state' }, checkMark(), h('h2', { text: '登記完成！' }),
+            h('p', { text: '抽獎會在課堂上進行，投影畫面只會顯示遮罩後的姓名與 Email。祝你好運！' })));
+        });
+      } },
+        h('div', { class: 'q' },
+          h('div', { class: 'q-label', style: 'margin-top:0', text: '登記抽獎' }),
+          h('div', { class: 'fine', style: 'margin:-8px 0 14px', text: '姓名與 Email 和剛才的問卷分開保存，講師無法對應是誰填了哪一份。' }),
+          h('div', { style: 'display:flex;flex-direction:column;gap:14px' },
+            h('label', { class: 'field', for: 'rName' }, '姓名', name),
+            h('label', { class: 'field', for: 'rEmail' }, 'Email（得獎聯繫用）', email),
+            h('label', { class: 'consent', for: 'rAgree' }, agree, h('span', { text: CONSENT })))),
+        err, btn,
+        h('button', { type: 'button', class: 'ghost', text: '返回', onclick: showThanks }));
+      form.style.display = 'contents';
+      TS.fill(body, prizeBox(), form);
+      name.focus();
+    }
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,710 @@
+<script>
+(function () {
+  'use strict';
+
+  var boot = parseJson(document.getElementById('boot').getAttribute('data-initial'), {});
+  var main = document.getElementById('main');
+  var raffleEl = document.getElementById('raffle');
+  var S = { data: null, view: 'list', filter: 'all', detail: null, raffle: null, prize: null, drawing: false, reveal: null };
+  var DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+  var STATUS = { draft: '草稿', open: '開放填答中', closed: '已結束' };
+
+  // ---------- 小工具（所有使用者文字一律走 textContent） ----------
+
+  function h(tag, props) {
+    var el = document.createElement(tag);
+    if (props) Object.keys(props).forEach(function (k) {
+      var v = props[k];
+      if (v === null || v === undefined || v === false) return;
+      if (k === 'text') el.textContent = v;
+      else if (k === 'class') el.className = v;
+      else if (k.indexOf('on') === 0) el.addEventListener(k.slice(2), v);
+      else el.setAttribute(k, v === true ? '' : v);
+    });
+    append(el, [].slice.call(arguments, 2));
+    return el;
+  }
+  function append(el, kids) {
+    kids.forEach(function (k) {
+      if (k === null || k === undefined || k === false) return;
+      if (Array.isArray(k)) append(el, k);
+      else el.appendChild(typeof k === 'object' ? k : document.createTextNode(String(k)));
+    });
+  }
+  /** 換掉元素內容；null 與 false 會被略過，不會變成文字 */
+  function fill(el) {
+    el.replaceChildren();
+    append(el, [].slice.call(arguments, 1));
+  }
+  function parseJson(text, fallback) { try { return JSON.parse(text); } catch (e) { return fallback; } }
+
+  function call(fn) {
+    var args = [].slice.call(arguments, 1);
+    return new Promise(function (resolve, reject) {
+      var runner = google.script.run.withSuccessHandler(resolve).withFailureHandler(function (e) {
+        reject(new Error(String((e && e.message) || e).replace(/^(Error|Exception):\s*/, '')));
+      });
+      runner[fn].apply(runner, args);
+    });
+  }
+
+  var toastTimer;
+  function toast(msg, isErr) {
+    var t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast' + (isErr ? ' err' : '');
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.hidden = true; }, isErr ? 5000 : 2400);
+  }
+  function fail(err) { toast(err.message || String(err), true); }
+
+  function dateLabel(c) {
+    var p = c.date.split('-');
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    return p.join('.') + ' ' + DAYS[d.getDay()] + (c.start_time ? '・' + c.start_time : '');
+  }
+  function surveyUrl(c) { return S.data.siteUrl + 's/?c=' + encodeURIComponent(c.survey_code); }
+  function liveUrl(c) { return S.data.siteUrl + 'live/?c=' + encodeURIComponent(c.survey_code); }
+  function shortUrl(u) { return u.replace(/^https?:\/\//, ''); }
+  function statusPill(status) { return h('span', { class: 'pill pill-' + status, text: STATUS[status] || status }); }
+  function fileSafe(s) { return String(s).replace(/[\\\/:*?"<>|]/g, '').slice(0, 40); }
+
+  function copyText(text) {
+    function legacy() {
+      var ta = h('textarea', { style: 'position:fixed;top:0;left:0;opacity:0' });
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      ta.remove();
+      return ok;
+    }
+    var p = navigator.clipboard && window.isSecureContext
+      ? navigator.clipboard.writeText(text).then(function () { return true; }, legacy)
+      : Promise.resolve(legacy());
+    return p.then(function (ok) { toast(ok ? '已複製連結' : '無法自動複製，請手動選取網址', !ok); });
+  }
+
+  function download(filename, href) {
+    var a = h('a', { href: href, download: filename, target: '_self' });
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  function qrModules(text) {
+    var qr = qrcode(0, 'M');
+    qr.addData(text);
+    qr.make();
+    return qr;
+  }
+  function qrSvg(text, label) {
+    var qr = qrModules(text);
+    var n = qr.getModuleCount();
+    var NS = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 ' + n + ' ' + n);
+    svg.setAttribute('shape-rendering', 'crispEdges');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', label || '問卷 QR Code');
+    var d = '';
+    for (var r = 0; r < n; r++) for (var c = 0; c < n; c++) if (qr.isDark(r, c)) d += 'M' + c + ' ' + r + 'h1v1h-1z';
+    var path = document.createElementNS(NS, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', '#12305C');
+    svg.appendChild(path);
+    return svg;
+  }
+  function qrPng(text) {
+    var qr = qrModules(text);
+    var n = qr.getModuleCount();
+    var quiet = 4;
+    var cell = Math.floor(1200 / (n + quiet * 2));
+    var size = cell * (n + quiet * 2);
+    var canvas = h('canvas', { width: size, height: size });
+    var ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = '#12305C';
+    for (var r = 0; r < n; r++) for (var c = 0; c < n; c++) {
+      if (qr.isDark(r, c)) ctx.fillRect((c + quiet) * cell, (r + quiet) * cell, cell, cell);
+    }
+    return canvas.toDataURL('image/png');
+  }
+
+  function confirmBox(opt) {
+    var dlg = document.getElementById('confirmDialog');
+    var input = document.getElementById('confirmType');
+    var ok = document.getElementById('confirmOk');
+    document.getElementById('confirmTitle').textContent = opt.title;
+    document.getElementById('confirmText').textContent = opt.text;
+    document.getElementById('confirmTypeWrap').hidden = !opt.typeWord;
+    document.getElementById('confirmTypeLabel').textContent = opt.typeWord ? '請輸入「' + opt.typeWord + '」確認' : '';
+    input.value = '';
+    ok.textContent = opt.okText || '確定';
+    ok.className = 'btn ' + (opt.danger ? 'btn-main' : 'btn-blue');
+    return new Promise(function (resolve) {
+      function done(v) {
+        ok.onclick = null;
+        document.getElementById('confirmCancel').onclick = null;
+        dlg.close();
+        resolve(v);
+      }
+      ok.onclick = function () {
+        if (opt.typeWord && input.value.trim() !== opt.typeWord) { input.focus(); return; }
+        done(opt.typeWord ? input.value.trim() : true);
+      };
+      document.getElementById('confirmCancel').onclick = function () { done(false); };
+      dlg.oncancel = function () { done(false); };
+      dlg.showModal();
+      (opt.typeWord ? input : ok).focus();
+    });
+  }
+
+  // ---------- 資料 ----------
+
+  function reload() {
+    return call('admin_bootstrap').then(function (data) {
+      S.data = data;
+      document.getElementById('sheetLink').href = data.spreadsheetUrl;
+    });
+  }
+
+  function showList() {
+    S.view = 'list';
+    raffleEl.hidden = true;
+    renderList();
+    window.scrollTo(0, 0);
+  }
+
+  function openDetail(courseId, silent) {
+    if (!silent) {
+      S.view = 'detail';
+      raffleEl.hidden = true;
+      fill(main, h('div', { class: 'loading', text: '載入中…' }));
+    }
+    return call('admin_getCourse', courseId).then(function (d) {
+      if (silent && (S.view !== 'detail' || !S.detail || S.detail.course.course_id !== courseId)) return;
+      S.detail = d;
+      renderDetail();
+      if (!silent) window.scrollTo(0, 0);
+    }).catch(fail);
+  }
+
+  function openRaffle(key) {
+    S.view = 'raffle';
+    raffleEl.hidden = false;
+    fill(raffleEl, h('div', { class: 'raffle-in' }, h('div', { class: 'loading', text: '載入中…' })));
+    return call('admin_getRaffle', key).then(function (r) {
+      S.raffle = r;
+      var prizes = r.raffle.prizes;
+      var keep = prizes.filter(function (p) { return p.name === S.prize; })[0];
+      var next = prizes.filter(function (p) { return p.winners.length < p.qty; })[0];
+      S.prize = (keep || next || prizes[0] || {}).name || null;
+      renderRaffle();
+    }).catch(function (err) {
+      raffleEl.hidden = true;
+      S.view = 'list';
+      renderList();
+      fail(err);
+    });
+  }
+
+  // ---------- 課程列表 ----------
+
+  function renderList() {
+    var courses = S.data.courses;
+    var today = new Date();
+    var ym = today.getFullYear() + '-' + ('0' + (today.getMonth() + 1)).slice(-2);
+    var thisMonth = courses.filter(function (c) { return c.date.slice(0, 7) === ym; }).length;
+    var thisYear = courses.filter(function (c) { return c.date.slice(0, 4) === String(today.getFullYear()); }).length;
+    var q1sum = 0, q1n = 0, resp = 0, att = 0;
+    courses.forEach(function (c) {
+      if (c.avg_q1 !== null) { q1sum += c.avg_q1 * c.response_count; q1n += c.response_count; }
+      if (c.attendees) { resp += c.response_count; att += c.attendees; }
+    });
+
+    var shown = courses.filter(function (c) { return S.filter === 'all' || c.status === S.filter; });
+    var tabs = [['all', '全部'], ['open', '開放中'], ['draft', '草稿'], ['closed', '已結束']];
+
+    fill(main, 
+      h('div', { class: 'page-head' },
+        h('div', null, h('div', { class: 'eyebrow', text: 'COURSES' }), h('h1', { text: '課程列表' })),
+        h('button', { type: 'button', class: 'btn btn-main', text: '＋ 新增課程', onclick: function () { openCourseDialog(null); } })
+      ),
+      S.data.reminders.length ? h('div', { class: 'banner', role: 'alert' },
+        h('div', null,
+          h('b', { text: '有課程的抽獎資料已超過 ' + 30 + ' 天還沒清除' }),
+          h('ul', null, S.data.reminders.map(function (r) {
+            return h('li', null, h('button', { type: 'button', class: 'btn-text', style: 'min-height:32px;padding:0',
+              text: r.date + '　' + r.title + '（' + r.entries + ' 筆登記）', onclick: function () { openDetail(r.course_id); } }));
+          }))
+        )
+      ) : null,
+      h('div', { class: 'stats' },
+        stat('本月課程', thisMonth, '場'),
+        stat('本年度累計', thisYear, '場'),
+        stat('平均滿意度', q1n ? (q1sum / q1n).toFixed(1) : '—', q1n ? '/ 5' : ''),
+        stat('問卷回收率', att ? Math.round(resp / att * 100) : '—', att ? '%' : '')
+      ),
+      h('div', { class: 'tabs', role: 'tablist' }, tabs.map(function (t) {
+        return h('button', { type: 'button', role: 'tab', class: 'tab' + (S.filter === t[0] ? ' on' : ''),
+          'aria-selected': String(S.filter === t[0]), text: t[1],
+          onclick: function () { S.filter = t[0]; renderList(); } });
+      })),
+      shown.length ? h('div', { class: 'course-list' }, shown.map(courseItem)) :
+        h('div', { class: 'empty' }, courses.length ? '這個分類還沒有課程' : '還沒有課程，按右上角「新增課程」開始吧')
+    );
+  }
+
+  function stat(label, value, unit, blue) {
+    return h('div', { class: 'stat' + (blue ? ' stat-blue' : '') },
+      h('div', { class: 'stat-label', text: label }),
+      h('div', { class: 'stat-value' }, String(value), unit ? h('small', { text: unit }) : null));
+  }
+
+  function courseItem(c) {
+    var p = c.date.split('-');
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    var meta = [c.org_name, c.org_type].filter(Boolean).join('・');
+    return h('button', { type: 'button', class: 'course-item', onclick: function () { openDetail(c.course_id); } },
+      h('div', { class: 'course-date' }, p[1] + '/' + p[2],
+        h('small', { text: DAYS[d.getDay()] + (c.start_time ? ' ' + c.start_time : '') + '・' + p[0] })),
+      h('div', null,
+        h('div', { class: 'course-title', text: c.title }),
+        h('div', { class: 'course-meta' }, meta, c.product_tags.length ? '　' + c.product_tags.join('、') : '')),
+      h('div', { class: 'course-nums' },
+        statusPill(c.status),
+        h('div', null, h('b', { text: String(c.response_count) }), '回饋'),
+        c.prizes.length ? h('div', null, h('b', { text: String(c.entry_count) }), '抽獎') : null)
+    );
+  }
+
+  // ---------- 課程詳情 ----------
+
+  function renderDetail() {
+    var d = S.detail;
+    var c = d.course;
+    var r = d.raffle;
+    var url = surveyUrl(c);
+    var rate = c.attendees ? Math.round(c.response_count / c.attendees * 100) : null;
+    var canDelete = c.response_count === 0 && c.entry_count === 0;
+
+    var actions = [h('button', { type: 'button', class: 'btn', text: '編輯課程', onclick: function () { openCourseDialog(c); } })];
+    if (c.status === 'draft') {
+      actions.push(h('button', { type: 'button', class: 'btn btn-main', text: '開放填答', onclick: function () { setStatus(c, 'open'); } }));
+    } else if (c.status === 'open') {
+      actions.push(h('button', { type: 'button', class: 'btn', text: '結束填答', onclick: function () { setStatus(c, 'closed'); } }));
+      actions.push(h('a', { class: 'btn btn-main', href: liveUrl(c), target: '_blank', rel: 'noopener', text: '開啟投影畫面' }));
+    } else {
+      if (!c.winner_count && !c.raffle_cleared_at) {
+        actions.push(h('button', { type: 'button', class: 'btn', text: '重新開放填答', onclick: function () { setStatus(c, 'open'); } }));
+      }
+      actions.push(h('a', { class: c.prizes.length ? 'btn' : 'btn btn-main', href: liveUrl(c), target: '_blank', rel: 'noopener', text: '開啟投影畫面' }));
+      if (c.prizes.length && !c.raffle_cleared_at) {
+        actions.push(h('button', { type: 'button', class: 'btn btn-main', text: '前往抽獎', onclick: function () { openRaffle(c.course_id); } }));
+      }
+    }
+
+    var lockNote = c.response_count ? '已有填答，題目鎖定' : (c.status === 'draft' ? '還沒開放，學員掃碼會看到「尚未開放」' : '還沒有人填答');
+
+    var attendInput = h('input', { type: 'number', min: '0', max: '5000', value: c.attendees === '' ? '' : String(c.attendees),
+      'aria-label': '實到人數', placeholder: '—' });
+    attendInput.addEventListener('change', function () {
+      call('admin_setAttendees', c.course_id, attendInput.value).then(function () {
+        toast('已更新實到人數');
+        return Promise.all([reload(), openDetail(c.course_id, true)]);
+      }).catch(fail);
+    });
+
+    var latestHead = d.questions.map(function (q) { return h('th', { class: 'q', title: q.label, text: q.label }); });
+    var latestRows = d.latest.map(function (row) {
+      return h('tr', null,
+        h('td', { class: 'num', text: row.submitted_at.slice(5, 16) }),
+        d.questions.map(function (q) {
+          var v = row.answers[q.id];
+          var text = v === undefined || v === '' ? '—' : Array.isArray(v) ? v.join('、') : String(v);
+          return h('td', { class: q.type === 'rating' ? 'n' : q.type === 'text' ? 't' : '', text: text });
+        }));
+    });
+
+    fill(main, 
+      h('button', { type: 'button', class: 'back', text: '‹ 回到課程列表', onclick: function () { reload().then(showList).catch(fail); } }),
+      h('div', { class: 'detail-meta' },
+        h('span', { class: 'when', text: dateLabel(c) }),
+        statusPill(c.status),
+        c.product_tags.map(function (t) { return h('span', { class: 'pill', text: t }); }),
+        c.org_type ? h('span', { class: 'pill', text: c.org_type }) : null),
+      h('div', { class: 'page-head', style: 'margin-top:6px' },
+        h('div', null,
+          h('h1', { text: c.title }),
+          h('div', { class: 'sub', text: [c.org_name, c.location].filter(Boolean).join('・') || '　' })),
+        h('div', { class: 'row' }, actions)),
+
+      h('div', { class: 'detail-grid' },
+        h('div', { class: 'stack' },
+          h('div', { class: 'card qr-card' },
+            h('div', { class: 'qr-box' }, qrSvg(url)),
+            h('div', { class: 'stack', style: 'gap:10px' },
+              h('h2', { text: '課後回饋' }),
+              h('div', { class: 'link-line', text: shortUrl(url) }),
+              h('div', { class: 'note' }, '使用公版問卷 ', h('b', { text: 'v' + c.template_version }), '・' + lockNote),
+              h('div', { class: 'row' },
+                h('button', { type: 'button', class: 'btn btn-sm', text: '複製連結', onclick: function () { copyText(url); } }),
+                h('button', { type: 'button', class: 'btn btn-sm', text: '下載 QR', onclick: function () {
+                  download('問卷QR_' + c.date + '_' + fileSafe(c.title) + '.png', qrPng(url));
+                } }),
+                h('a', { class: 'btn-text', href: url, target: '_blank', rel: 'noopener', text: '預覽問卷 ↗' })))),
+          h('div', { class: 'tiles' },
+            h('div', { class: 'tile tile-blue' },
+              h('div', { class: 'stat-label', text: '回饋份數' }),
+              h('div', { class: 'stat-value', text: String(c.response_count) })),
+            h('div', { class: 'tile' },
+              h('div', { class: 'stat-label', text: '回收率' }),
+              h('div', { class: 'stat-value' }, rate === null ? '—' : String(rate), rate === null ? null : h('small', { text: '%' })),
+              h('label', { class: 'attend' }, '實到', attendInput, '人')),
+            h('div', { class: 'tile' },
+              h('div', { class: 'stat-label', text: '抽獎登記' }),
+              h('div', { class: 'stat-value', text: String(c.entry_count) })))
+        ),
+        h('div', { class: 'stack' },
+          h('div', { class: 'card prize-card' },
+            h('div', { class: 'card-head' },
+              h('h2', { text: '抽獎獎品' }),
+              c.prizes.length && !c.raffle_cleared_at ? h('button', { type: 'button', class: 'btn btn-main btn-sm', text: '前往抽獎',
+                onclick: function () { openRaffle(c.course_id); } }) : null),
+            h('div', { class: 'prize-list' },
+              r.prizes.length ? r.prizes.map(function (p) {
+                return h('div', { class: 'prize-row' }, h('span', { text: p.name }),
+                  h('span', { class: 'qty', text: (p.winners.length ? '已抽 ' + p.winners.length + ' / ' : '× ') + p.qty }));
+              }) : h('div', { class: 'note', text: '這堂課沒有抽獎。學員填完問卷就結束。' }),
+              h('button', { type: 'button', class: 'dashed', text: c.prizes.length ? '編輯獎項' : '＋ 新增獎項',
+                onclick: function () { openCourseDialog(c, { focusPrizes: true }); } }))),
+          raffleDataCard(c, r)
+        )
+      ),
+
+      h('div', { class: 'card', style: 'margin-top:20px' },
+        h('div', { class: 'card-head' },
+          h('div', { class: 'row' }, h('h2', { text: '最新回饋' }),
+            c.status === 'open' ? h('span', { class: 'note', text: '每 15 秒自動更新' }) : null),
+          h('a', { class: 'btn btn-sm', href: S.data.responsesUrl, target: '_blank', rel: 'noopener', text: '在試算表中開啟' })),
+        d.latest.length ? h('div', { class: 'table-wrap' },
+          h('table', null, h('thead', null, h('tr', null, h('th', { text: '時間' }), latestHead)), h('tbody', null, latestRows))
+        ) : h('div', { class: 'note', text: '還沒有回饋。' }),
+        d.latest.length >= 20 ? h('div', { class: 'note', style: 'margin-top:10px', text: '只顯示最新 20 筆，完整資料請到試算表查看。' }) : null),
+
+      canDelete ? h('div', { style: 'margin-top:24px' },
+        h('button', { type: 'button', class: 'btn-text btn-danger', text: '刪除這堂課', onclick: function () { deleteCourse(c); } })) : null
+    );
+  }
+
+  function raffleDataCard(c, r) {
+    if (!c.prizes.length && !c.entry_count) return null;
+    var body;
+    if (c.raffle_cleared_at) {
+      body = [h('div', { class: 'note', text: '已於 ' + c.raffle_cleared_at.slice(0, 16) + ' 清除姓名與 Email。保留統計：登記 ' +
+        r.entry_count + ' 人、得獎 ' + r.winner_count + ' 人。' })];
+    } else {
+      var limit = new Date(c.date + 'T00:00:00');
+      limit.setDate(limit.getDate() + 30);
+      var deadline = limit.getFullYear() + '/' + (limit.getMonth() + 1) + '/' + limit.getDate();
+      body = [
+        h('div', null, '登記 ', h('b', { class: 'num', text: String(r.entry_count) }), ' 人・已抽出 ',
+          h('b', { class: 'num', text: String(r.winner_count) }), ' 位'),
+        h('div', { class: 'note', text: '名單只在這裡和試算表看得到。領獎完成後請清除，最晚 ' + deadline + '。' }),
+        h('div', { class: 'row' },
+          h('button', { type: 'button', class: 'btn btn-sm', text: '匯出名單 CSV', disabled: !r.entry_count, onclick: function () { exportRaffle(c); } }),
+          h('button', { type: 'button', class: 'btn-text btn-danger', text: '清除本堂抽獎資料',
+            disabled: c.status !== 'closed' || !r.entry_count, title: c.status !== 'closed' ? '結束填答後才能清除' : null,
+            onclick: function () { clearRaffle(c, r); } }))
+      ];
+    }
+    return h('div', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', { text: '抽獎名單' })), h('div', { class: 'stack', style: 'gap:10px' }, body));
+  }
+
+  function setStatus(c, status) {
+    var copy = {
+      open: c.status === 'closed'
+        ? { title: '重新開放填答？', text: '學員又可以填問卷與登記抽獎。', okText: '重新開放' }
+        : { title: '開放填答？', text: '開放後學員掃 QR Code 就能填答。', okText: '開放填答' },
+      closed: { title: '結束填答？', text: '結束後問卷顯示「已截止」，抽獎名單凍結，才能開始抽獎。', okText: '結束填答' }
+    }[status];
+    return confirmBox(copy).then(function (yes) {
+      if (!yes) return;
+      return call('admin_setStatus', c.course_id, status).then(function () {
+        toast(status === 'open' ? '已開放填答' : '已結束填答，名單已凍結');
+        return reload().then(function () { return openDetail(c.course_id, true); });
+      });
+    }).catch(fail);
+  }
+
+  function exportRaffle(c) {
+    call('admin_exportRaffle', c.course_id).then(function (res) {
+      var blob = new Blob([res.csv], { type: 'text/csv;charset=utf-8' });
+      var href = URL.createObjectURL(blob);
+      download(res.filename, href);
+      setTimeout(function () { URL.revokeObjectURL(href); }, 4000);
+      toast('已匯出，請存到安全的地方');
+    }).catch(fail);
+  }
+
+  function clearRaffle(c, r) {
+    confirmBox({
+      title: '清除本堂抽獎資料？',
+      text: '會永久刪除這堂課 ' + r.entry_count + ' 筆姓名與 Email，只保留登記人數與得獎人數。請確認已匯出名單、領獎都完成了。',
+      typeWord: '清除', okText: '永久清除', danger: true
+    }).then(function (word) {
+      if (!word) return;
+      return call('admin_clearRaffle', c.course_id, word).then(function (res) {
+        toast('已清除 ' + res.entries + ' 筆抽獎資料');
+        return reload().then(function () { return openDetail(c.course_id, true); });
+      });
+    }).catch(fail);
+  }
+
+  function deleteCourse(c) {
+    confirmBox({ title: '刪除這堂課？', text: '「' + c.title + '」還沒有任何填答或抽獎登記，刪除後無法復原。', okText: '刪除', danger: true })
+      .then(function (yes) {
+        if (!yes) return;
+        return call('admin_deleteCourse', c.course_id).then(function () {
+          toast('已刪除');
+          return reload().then(showList);
+        });
+      }).catch(fail);
+  }
+
+  // ---------- 新增 / 編輯課程 ----------
+
+  var form = document.getElementById('courseForm');
+  var F = form.elements;
+  var dialog = document.getElementById('courseDialog');
+  var editing = null;
+  var formTags = [];
+  var formOrgType = '學校';
+
+  function openCourseDialog(c, opt) {
+    editing = c;
+    form.reset();
+    document.getElementById('courseDialogTitle').textContent = c ? '編輯課程' : '新增課程';
+    document.getElementById('formError').textContent = '';
+    F.title.value = c ? c.title : '';
+    F.date.value = c ? c.date : (opt && opt.date) || '';
+    F.start_time.value = c ? c.start_time : '';
+    F.org_name.value = c ? c.org_name : '';
+    F.location.value = c ? c.location : '';
+    F.attendees.value = c && c.attendees !== '' ? c.attendees : '';
+    formOrgType = c ? c.org_type || '其他' : '學校';
+    formTags = c ? c.product_tags.slice() : [];
+    renderOrgTypes();
+    renderTags();
+    var rows = document.getElementById('prizeRows');
+    rows.replaceChildren();
+    (c ? c.prizes : []).forEach(function (p) { addPrizeRow(p); });
+    dialog.showModal();
+    if (opt && opt.focusPrizes) {
+      if (!rows.children.length) addPrizeRow();
+      rows.querySelector('input').focus();
+    } else {
+      F.title.focus();
+    }
+  }
+
+  function renderOrgTypes() {
+    fill(document.getElementById('orgTypes'), S.data.orgTypes.map(function (t) {
+      return h('button', { type: 'button', class: 'chip', 'aria-pressed': String(formOrgType === t), text: t,
+        onclick: function () { formOrgType = t; renderOrgTypes(); } });
+    }));
+  }
+
+  function renderTags() {
+    var all = S.data.productTags.slice();
+    formTags.forEach(function (t) { if (all.indexOf(t) < 0) all.push(t); });
+    var box = document.getElementById('tagChips');
+    fill(box, all.map(function (t) {
+      var on = formTags.indexOf(t) >= 0;
+      return h('button', { type: 'button', class: 'chip', 'aria-pressed': String(on), text: t, onclick: function () {
+        if (on) formTags.splice(formTags.indexOf(t), 1); else formTags.push(t);
+        renderTags();
+      } });
+    }));
+  }
+
+  function addPrizeRow(p) {
+    var name = h('input', { class: 'input', maxlength: '40', placeholder: '獎項名稱，例：全家禮物卡 NT$100', 'aria-label': '獎項名稱' });
+    var qty = h('input', { class: 'input', type: 'number', min: '1', max: '100', placeholder: '數量', 'aria-label': '數量' });
+    name.value = p ? p.name : '';
+    qty.value = p ? p.qty : '1';
+    var row = h('div', { class: 'prize-edit' }, name, qty,
+      h('button', { type: 'button', class: 'icon-btn', 'aria-label': '刪除這個獎項', text: '×', onclick: function () { row.remove(); } }));
+    document.getElementById('prizeRows').appendChild(row);
+    return row;
+  }
+
+  document.getElementById('addPrize').addEventListener('click', function () {
+    addPrizeRow().querySelector('input').focus();
+  });
+  document.getElementById('addTag').addEventListener('click', addTag);
+  document.getElementById('newTag').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); addTag(); }
+  });
+  function addTag() {
+    var input = document.getElementById('newTag');
+    var t = input.value.trim().replace(/,/g, ' ');
+    if (t && formTags.indexOf(t) < 0) formTags.push(t);
+    input.value = '';
+    renderTags();
+  }
+  document.getElementById('cancelCourse').addEventListener('click', function () { dialog.close(); });
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var err = document.getElementById('formError');
+    var prizes = [].map.call(document.querySelectorAll('#prizeRows .prize-edit'), function (row) {
+      var inputs = row.querySelectorAll('input');
+      return { name: inputs[0].value.trim(), qty: Number(inputs[1].value) };
+    }).filter(function (p) { return p.name; });
+    var data = {
+      course_id: editing ? editing.course_id : '',
+      title: F.title.value, date: F.date.value, start_time: F.start_time.value,
+      org_name: F.org_name.value, location: F.location.value, org_type: formOrgType,
+      product_tags: formTags, attendees: F.attendees.value, prizes: prizes
+    };
+    if (!data.title.trim()) { err.textContent = '請填課程名稱'; F.title.focus(); return; }
+    if (!data.date) { err.textContent = '請選日期'; F.date.focus(); return; }
+    var btn = document.getElementById('saveCourse');
+    btn.disabled = true;
+    err.textContent = '';
+    call('admin_saveCourse', data).then(function (id) {
+      dialog.close();
+      toast(editing ? '已儲存' : '已建立課程');
+      return reload().then(function () { return openDetail(id, S.view === 'detail' && !!editing); });
+    }).catch(function (e2) {
+      err.textContent = e2.message;
+    }).then(function () { btn.disabled = false; });
+  });
+
+  // ---------- 抽獎 ----------
+
+  function renderRaffle() {
+    var c = S.raffle.course;
+    var r = S.raffle.raffle;
+    var prize = r.prizes.filter(function (p) { return p.name === S.prize; })[0];
+    var top = h('div', { class: 'raffle-top' },
+      h('div', { class: 'row', style: 'gap:22px' },
+        h('a', { href: liveUrl(c), text: '‹ 返回 QR Code 畫面' }),
+        h('button', { type: 'button', text: '回到課程詳情', onclick: function () {
+          reload().then(function () { return openDetail(c.course_id); }).catch(fail);
+        } })),
+      h('div', { class: 'raffle-status', text: r.frozen
+        ? '名單已凍結・' + r.entry_count + ' 人・同一人限中獎一次'
+        : '填答進行中・目前 ' + r.entry_count + ' 人登記' }));
+
+    var body;
+    var drawBtn = null;
+    if (r.cleared) {
+      body = message('這堂課的抽獎資料已經清除。');
+    } else if (!r.prizes.length) {
+      body = message('這堂課沒有設定獎項。請回到課程詳情新增獎項。');
+    } else if (!r.frozen) {
+      body = h('div', { class: 'raffle-msg', style: 'margin-top:40px' },
+        h('h2', { style: 'font-size:26px;margin-bottom:8px', text: '填答還在進行中' }),
+        h('p', { style: 'margin:0 0 20px;color:#D6E3F5', text: '結束填答後名單才會凍結，抽獎過程中就不會再有人加入。' }),
+        c.status === 'open' ? h('button', { type: 'button', class: 'btn btn-main', text: '結束填答並凍結名單', onclick: function () {
+          confirmBox({ title: '結束填答？', text: '學員將無法再填問卷或登記抽獎。', okText: '結束填答' }).then(function (yes) {
+            if (!yes) return;
+            return call('admin_setStatus', c.course_id, 'closed').then(function () { return openRaffle(c.course_id); });
+          }).catch(fail);
+        } }) : h('p', { text: '這堂課還是草稿，請先開放填答。' }));
+    } else {
+      var full = prize.winners.length >= prize.qty;
+      var noOne = r.remaining === 0;
+      var tickets = prize.winners.map(function (w) { return ticket(w, S.reveal && S.reveal.prize === prize.name && S.reveal.no === w.no); });
+      if (!full && !noOne) {
+        tickets.push(h('div', { class: 'ticket-next' }, h('div', { class: 'q', text: '?' }),
+          h('div', { text: '第 ' + (prize.winners.length + 1) + ' 位即將揭曉' })));
+      }
+      body = [
+        h('div', { class: 'prize-tabs', role: 'tablist' }, r.prizes.map(function (p) {
+          return h('button', { type: 'button', role: 'tab', class: 'prize-tab' + (p.name === S.prize ? ' on' : ''),
+            'aria-selected': String(p.name === S.prize), onclick: function () { S.prize = p.name; S.reveal = null; renderRaffle(); } },
+            p.name, h('span', { class: 'num', text: p.winners.length + ' / ' + p.qty }));
+        })),
+        h('div', { class: 'eyebrow', text: 'LUCKY DRAW' }),
+        h('h1', { text: prize.winners.length ? '恭喜幸運的你！' : '準備抽出「' + prize.name + '」' }),
+        h('div', { class: 'tickets', 'aria-live': 'polite' }, tickets)
+      ];
+      drawBtn = h('button', { type: 'button', class: 'btn btn-main btn-draw', id: 'drawBtn',
+        disabled: full || noOne || S.drawing,
+        text: full ? '這個獎項已抽滿' : noOne ? '沒有人可以抽了' : S.drawing ? '抽獎中…' : '抽出下一位',
+        onclick: draw });
+    }
+
+    fill(raffleEl, h('div', { class: 'raffle-in' },
+      h('div', { class: 'raffle-deco', 'aria-hidden': 'true' }),
+      top, body,
+      h('div', { class: 'raffle-foot' },
+        h('div', { class: 'note' }, '投影畫面只顯示遮罩姓名與 Email', h('br'), '完整名單請至後台或試算表查看'),
+        drawBtn)));
+  }
+
+  function message(text) {
+    return h('div', { class: 'raffle-msg', style: 'margin-top:40px', text: text });
+  }
+
+  function ticket(w, animate) {
+    var name = h('div', { class: 'ticket-name' });
+    Array.from(w.name).forEach(function (ch, i) {
+      name.appendChild(h('span', animate ? { class: 'pop', style: 'animation-delay:' + (180 + i * 90) + 'ms', text: ch } : { text: ch }));
+    });
+    return h('div', { class: 'ticket' + (animate ? ' flip-in' : '') },
+      h('div', { class: 'ticket-no', text: 'NO.' + ('0' + w.no).slice(-2) }),
+      name,
+      h('div', { class: 'ticket-mail', text: w.email }));
+  }
+
+  function draw() {
+    if (S.drawing) return;
+    S.drawing = true;
+    S.reveal = null;
+    renderRaffle();
+    call('admin_draw', S.raffle.course.course_id, S.prize).then(function (res) {
+      S.raffle = { course: res.course, raffle: res.raffle };
+      S.reveal = { prize: res.winner.prize, no: res.winner.no };
+    }).catch(fail).then(function () {
+      S.drawing = false;
+      renderRaffle();
+    });
+  }
+
+  // 簡報筆的「下一頁」也可以抽
+  document.addEventListener('keydown', function (e) {
+    if (S.view !== 'raffle' || raffleEl.hidden || document.querySelector('dialog[open]')) return;
+    if (['PageDown', 'ArrowRight', 'Enter', ' '].indexOf(e.key) < 0) return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    var btn = document.getElementById('drawBtn');
+    if (btn && !btn.disabled) { e.preventDefault(); draw(); }
+  });
+
+  // ---------- 啟動 ----------
+
+  document.querySelector('[data-nav="list"]').addEventListener('click', function () { reload().then(showList).catch(fail); });
+
+  setInterval(function () {
+    if (document.hidden || S.view !== 'detail' || !S.detail || S.detail.course.status !== 'open') return;
+    if (document.querySelector('dialog[open]') || (document.activeElement && document.activeElement.tagName === 'INPUT')) return;
+    openDetail(S.detail.course.course_id, true);
+  }, 15000);
+
+  reload().then(function () {
+    if (boot.page === 'raffle' && boot.code) return openRaffle(boot.code);
+    var byCode = boot.code && S.data.courses.filter(function (c) { return c.survey_code === boot.code; })[0];
+    if (byCode) return openDetail(byCode.course_id);
+    showList();
+  }).catch(function (err) {
+    fill(main, h('div', { class: 'card' }, h('h2', { text: '載入失敗' }), h('p', { text: err.message })));
+  });
+})();
+</script>
