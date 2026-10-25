@@ -20,7 +20,16 @@ const ss = new FakeSpreadsheet();
 const pub = makeProject(ss, [path.join(ROOT, 'gas-public/Code.gs')]);
 pub.__props.set('SPREADSHEET_ID', ss.getId());
 
+// 真的 Apps Script 每次呼叫都是全新環境；本機的 vm 會一直留著，所以每次呼叫前手動清掉暫存
+function fresh(ctx) {
+  if ('TABLES_' in ctx) ctx.TABLES_ = {};
+  if ('HEADERS_' in ctx) ctx.HEADERS_ = {};
+  if (ctx.ss_) delete ctx.ss_.cache;
+  return ctx;
+}
+
 function callPublic(body) {
+  fresh(pub);
   return pub.doPost({ postData: { contents: body } }).getContent();
 }
 const admin = makeProject(ss, ['Code.gs', 'Setup.gs'].map((f) => path.join(ROOT, 'gas-admin', f)), {
@@ -41,7 +50,7 @@ function seed() {
     title: 'JoVE 實驗影片資料庫講習', date: today, start_time: '14:00', org_name: '○○大學 圖書館',
     org_type: '學校', location: '視聽教室 B1', product_tags: ['JoVE'], attendees: 42,
     prizes: [{ name: '全家禮物卡 NT$100', qty: 5 }, { name: 'JoVE 限定帆布袋', qty: 3 }]
-  });
+  }).detail.course.course_id;
   admin.admin_setStatus(id, 'open');
   const code = admin.findCourse_(id).survey_code;
   const people = [['王小明', 'mingwang@gmail.com'], ['陳怡伃', 'emily@ntu.edu.tw'], ['林志安', 'andy@yahoo.com.tw'],
@@ -105,14 +114,14 @@ http.createServer(async (req, res) => {
       return send(res, 200, TYPES['.json'], callPublic(await readBody(req)));
     }
     if (url.pathname === '/admin') {
-      const initial = JSON.stringify({ page: url.searchParams.get('page') || '', code: url.searchParams.get('c') || '' });
+      const initial = fresh(admin).initialData_({ page: url.searchParams.get('page') || '', c: url.searchParams.get('c') || '' });
       return send(res, 200, TYPES['.html'], renderTemplate(path.join(ROOT, 'gas-admin'), 'Index', { initial }, SHIM));
     }
     if (url.pathname === '/admin-rpc' && req.method === 'POST') {
       const { fn, args } = JSON.parse(await readBody(req));
       if (!/^admin_\w+$/.test(fn) || typeof admin[fn] !== 'function') return send(res, 200, TYPES['.json'], JSON.stringify({ ok: false, error: '沒有這個函式' }));
       try {
-        const result = admin[fn].apply(null, args);
+        const result = fresh(admin)[fn].apply(null, args);
         return send(res, 200, TYPES['.json'], JSON.stringify({ ok: true, result: result === undefined ? null : result }));
       } catch (err) {
         return send(res, 200, TYPES['.json'], JSON.stringify({ ok: false, error: err.message }));
@@ -120,7 +129,7 @@ http.createServer(async (req, res) => {
     }
     if (url.pathname === '/selftest') {
       admin.__log.length = 0;
-      const r = admin.runSelfTest();
+      const r = fresh(admin).runSelfTest();
       return send(res, 200, 'text/plain; charset=utf-8', admin.__log.join('\n') + '\n' + JSON.stringify({ total: r.total, failed: r.failed }));
     }
     if (url.pathname === '/dump') {

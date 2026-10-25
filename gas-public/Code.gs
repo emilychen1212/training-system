@@ -159,9 +159,9 @@ function getLive_(req) {
   };
 }
 
+/** 草稿課程也能看簡報（上課開頭還沒開放填答時就要放），問卷才要等開放 */
 function getViewer_(req) {
   var c = findCourse_(req.survey_code);
-  if (c.status === 'draft') throw fail_('NOT_FOUND');
   return {
     ok: true,
     status: c.status,
@@ -276,8 +276,12 @@ function sheet_(name) {
   return sh;
 }
 
+/** 同一次呼叫裡每張表的欄位名稱只讀一次 */
+var HEADERS_ = {};
 function headers_(sh) {
-  return sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  var name = sh.getName();
+  if (!HEADERS_[name]) HEADERS_[name] = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(String);
+  return HEADERS_[name];
 }
 
 /** 只讀一欄。公開 API 不讀整張抽獎表，所以姓名與 Email 欄從未被載入。 */

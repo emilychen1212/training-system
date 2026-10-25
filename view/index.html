@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>課堂簡報｜飛資得講習站</title>
+  <link rel="preconnect" href="https://script.google.com">
+  <link rel="preconnect" href="https://script.googleusercontent.com">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Outfit:wght@500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/base.css">
+  <style>
+    html, body { height: 100%; }
+    body { display: flex; flex-direction: column; background: var(--navy); overflow: hidden; }
+    .stage { flex: 1; min-height: 0; position: relative; }
+    .stage iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: transparent; }
+    .message { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+      padding: 24px; text-align: center; color: #fff; }
+    .message h1 { margin: 0; font-size: 28px; font-weight: 900; }
+    .message p { margin: 0; color: #A9C1E6; }
+    .bar { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 6px 18px; background: #fff; border-top: 1px solid var(--line); }
+    .bar .brand-mark { width: 26px; height: 26px; border-radius: 8px; }
+    .bar .brand-mark::after { width: 10px; height: 10px; right: -4px; top: -4px; }
+    .bar-title { font-weight: 900; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+    .tag { flex: none; font-size: 12px; font-weight: 700; color: var(--muted); background: var(--blue-soft); border-radius: 99px; padding: 2px 10px; }
+    .grow { flex: 1; }
+    .bar .btn { min-height: 40px; padding: 0 14px; font-size: 14px; }
+
+    .qr-layer { position: fixed; inset: 0; background: rgba(18, 48, 92, .72); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 5; }
+    .qr-card { position: relative; background: #fff; border-radius: 28px; padding: 32px 40px 28px; text-align: center; max-width: 92vw; }
+    .qr-card .scan { font-family: var(--num); font-size: 14px; letter-spacing: .25em; color: var(--muted); }
+    .qr-card .title { font-weight: 900; font-size: 20px; margin-top: 6px; }
+    .qr-card .qr { width: min(56vh, 70vw); height: min(56vh, 70vw); margin: 18px auto 14px; }
+    .qr-card .qr svg { width: 100%; height: 100%; display: block; }
+    .qr-card .short { font-family: var(--num); font-weight: 700; word-break: break-all; }
+    .qr-card .close { position: absolute; right: 14px; top: 14px; width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line);
+      background: #fff; font-size: 20px; cursor: pointer; }
+    .pop { animation: pop .3s cubic-bezier(.3, 1.4, .5, 1); }
+    @keyframes pop { from { transform: scale(.9); opacity: 0; } to { transform: none; opacity: 1; } }
+    @media (max-width: 560px) {
+      .tag { display: none; }
+      .bar { padding: 6px 10px; gap: 8px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="stage" id="stage"><div class="message"><p>載入中…</p></div></main>
+  <footer class="bar">
+    <div class="brand-mark" aria-hidden="true"></div>
+    <div class="bar-title" id="title">飛資得講習站</div>
+    <span class="tag">僅供檢視</span>
+    <div class="grow"></div>
+    <button type="button" class="btn" id="qrBtn" hidden>顯示回饋 QR</button>
+    <button type="button" class="btn" id="fullBtn">全螢幕</button>
+  </footer>
+  <div class="qr-layer" id="qrLayer" hidden></div>
+
+  <script src="../config.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var h = TS.h;
+    var code = TS.code();
+    var stage = document.getElementById('stage');
+    var layer = document.getElementById('qrLayer');
+    var OK = {
+      canva: /^https:\/\/www\.canva\.com\/design\/[\w-]+\/[\w-]+\/view\?embed$/,
+      pdf: /^https:\/\/drive\.google\.com\/file\/d\/[\w-]+\/preview$/,
+      web: /^https:\/\/[^\s"'<>]+$/
+    };
+
+    function message(title, text) {
+      TS.fill(stage, h('div', { class: 'message' }, h('h1', { text: title }), text ? h('p', { text: text }) : null));
+    }
+
+    document.getElementById('fullBtn').addEventListener('click', function () {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
+    });
+    document.addEventListener('fullscreenchange', function () {
+      document.getElementById('fullBtn').textContent = document.fullscreenElement ? '離開全螢幕' : '全螢幕';
+    });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') layer.hidden = true; });
+    layer.addEventListener('click', function (e) { if (e.target === layer) layer.hidden = true; });
+
+    function showQr(d) {
+      var url = TS.surveyUrl(code);
+      TS.fill(layer, h('div', { class: 'qr-card pop', role: 'dialog', 'aria-label': '課後回饋 QR Code' },
+        h('button', { type: 'button', class: 'close', 'aria-label': '關閉', text: '×', onclick: function () { layer.hidden = true; } }),
+        h('div', { class: 'scan', text: 'SCAN・課後回饋' }),
+        h('div', { class: 'title', text: { closed: '問卷已截止，謝謝大家！', draft: '問卷還沒開放，講師開放後就能填' }[d.status] || '花一分鐘，留下你的回饋' }),
+        h('div', { class: 'qr' }, TS.qrSvg(url)),
+        h('div', { class: 'short', text: url.replace(/^https?:\/\//, '') })));
+      layer.hidden = false;
+    }
+
+    if (!/^\d{4}-\d{6}$/.test(code)) {
+      message('找不到這份簡報', '請確認網址是否正確。');
+      return;
+    }
+    TS.api('getViewer', { survey_code: code }).then(function (d) {
+      if (!d.ok) {
+        if (d.error === 'NOT_FOUND') return message('找不到這份簡報', '請確認網址是否正確。');
+        return message('暫時打不開簡報', d.error === 'NETWORK' ? '網路好像不太穩，請重新整理。' : '請稍後再試。');
+      }
+      document.getElementById('title').textContent = d.title;
+      document.title = d.title + '｜課堂簡報';
+      var qrBtn = document.getElementById('qrBtn');
+      qrBtn.hidden = false;
+      qrBtn.addEventListener('click', function () { showQr(d); });
+      if (!d.slide_url || !OK[d.slide_type] || !OK[d.slide_type].test(d.slide_url)) {
+        return message('這堂課還沒有設定簡報', '講師可以在後台的「課堂簡報」貼上連結。');
+      }
+      // 簡報（尤其 Canva）要幾秒才載得完，先在底下放提示文字，載完就被蓋住
+      TS.fill(stage, h('div', { class: 'message' }, h('p', { text: '簡報載入中…' })),
+        h('iframe', { src: d.slide_url, title: d.title + ' 簡報', allow: 'fullscreen' }));
+    });
+  })();
+  </script>
+</body>
+</html>

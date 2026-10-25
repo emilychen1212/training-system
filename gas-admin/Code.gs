@@ -20,10 +20,24 @@ var RAFFLE_KEEP_DAYS = 30;
 function doGet(e) {
   var p = (e && e.parameter) || {};
   var t = HtmlService.createTemplateFromFile('Index');
-  t.initial = JSON.stringify({ page: String(p.page || ''), code: String(p.c || '') });
+  t.initial = initialData_(p);
   return t.evaluate()
     .setTitle('飛資得講習站｜講師後台')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+function initialData_(p) {
+  var initial = { page: String(p.page || ''), code: String(p.c || '') };
+  // 開頁時就把資料一起帶出去，畫面不用再等第二趟
+  try {
+    initial.boot = admin_bootstrap();
+    var course = initial.code && initial.boot.courses.filter(function (c) { return c.survey_code === initial.code; })[0];
+    if (course && initial.page === 'raffle') initial.raffle = admin_getRaffle(course.course_id);
+    else if (course) initial.detail = admin_getCourse(course.course_id);
+  } catch (err) {
+    initial.boot = null;
+  }
+  return JSON.stringify(initial).replace(/</g, '\\u003c');
 }
 
 function include(name) {
@@ -50,6 +64,13 @@ function admin_bootstrap() {
       return { course_id: c.course_id, title: c.title, date: c.date, entries: c.entry_count };
     })
   };
+}
+
+/** 改完資料後，一次把最新的總覽與課程詳情帶回去，前端不用再多問兩趟 */
+function view_(courseId, extra) {
+  var out = { boot: admin_bootstrap(), detail: courseId ? admin_getCourse(courseId) : null };
+  Object.keys(extra || {}).forEach(function (k) { out[k] = extra[k]; });
+  return out;
 }
 
 function admin_getCourse(courseId) {
@@ -81,7 +102,7 @@ function admin_saveCourse(input) {
         org_type: d.org_type, location: d.location, product_tags: d.product_tags.join(','),
         attendees: d.attendees, prizes_json: JSON.stringify(d.prizes), updated_at: stamp
       });
-      return row.course_id;
+      return view_(row.course_id);
     }
     var id = 'c' + Utilities.getUuid().replace(/-/g, '').slice(0, 10);
     appendObj_(t, {
@@ -92,7 +113,7 @@ function admin_saveCourse(input) {
       prizes_json: JSON.stringify(d.prizes), created_at: stamp, updated_at: stamp
     });
     audit_('create_course', id, d.title);
-    return id;
+    return view_(id);
   });
 }
 
@@ -102,7 +123,7 @@ function admin_setAttendees(courseId, value) {
     var t = table_('courses');
     var row = rowById_(t, courseId);
     updateRow_(t, row, { attendees: n, updated_at: now_() });
-    return n;
+    return view_(courseId);
   });
 }
 
@@ -124,7 +145,17 @@ function admin_setStatus(courseId, status) {
     updateRow_(t, row, { status: status, updated_at: now_() });
     var action = { open: 'open_survey', closed: 'close_survey', draft: 'back_to_draft' }[status];
     audit_(action, courseId, from + ' → ' + status);
-    return status;
+    return view_(courseId);
+  });
+}
+
+function admin_setSlide(courseId, type, input) {
+  var s = normalizeSlide_(type, input);
+  return withLock_(function () {
+    var t = table_('courses');
+    var row = rowById_(t, courseId);
+    updateRow_(t, row, { slide_type: s.slide_type, slide_url: s.slide_url, updated_at: now_() });
+    return s;
   });
 }
 
@@ -135,8 +166,9 @@ function admin_deleteCourse(courseId) {
     var counts = courseCounts_()[courseId] || { responses: 0, entries: 0 };
     if (counts.responses > 0 || counts.entries > 0) throw new Error('已經有填答或抽獎登記，不能刪除這堂課');
     t.sh.deleteRow(row._row);
+    forget_('courses');
     audit_('delete_course', courseId, row.title);
-    return true;
+    return view_(null);
   });
 }
 
@@ -210,7 +242,7 @@ function admin_clearRaffle(courseId, confirmText) {
       raffle_cleared_at: now_(), updated_at: now_()
     });
     audit_('clear_raffle', c.course_id, '刪除 ' + mine.length + ' 筆登記（得獎 ' + winners + ' 位）');
-    return { entries: mine.length, winners: winners };
+    return view_(c.course_id, { cleared: { entries: mine.length, winners: winners } });
   });
 }
 
@@ -342,6 +374,40 @@ function checkPrizeChange_(row, prizes) {
   });
 }
 
+/**
+ * 把貼上的簡報連結整理成可以放進 iframe 的網址。
+ * Canva：檢視連結、嵌入連結、整段嵌入程式碼都接受，統一成 /view?embed
+ * PDF：Google 雲端硬碟分享連結，統一成 /preview
+ * 互動網頁：任何 https 網址
+ */
+function normalizeSlide_(type, input) {
+  var raw = String(input == null ? '' : input).trim();
+  if (!raw) return { slide_type: '', slide_url: '' };
+  var src = raw.match(/src\s*=\s*["']([^"']+)["']/i);
+  if (src) raw = src[1];
+  raw = raw.replace(/&amp;/g, '&').replace(/&#x2F;/gi, '/').trim();
+  if (!/^https:\/\//i.test(raw)) throw new Error('只接受 https:// 開頭的網址');
+  if (raw.length > 500) throw new Error('網址太長了，請確認有沒有貼到多餘的文字');
+
+  if (type === 'canva') {
+    if (/canva\.link\//i.test(raw)) throw new Error('canva.link 短網址不能嵌入，請在 Canva 按「分享 → 更多 → 嵌入」複製嵌入連結');
+    var c = raw.match(/^https:\/\/(?:www\.)?canva\.com\/design\/([\w-]+)\/([\w-]+)\/(?:view|watch)\b/i);
+    if (!c) throw new Error('這不是 Canva 的檢視或嵌入連結（編輯連結不能嵌入）。請在 Canva 按「分享 → 更多 → 嵌入」複製嵌入連結');
+    return { slide_type: 'canva', slide_url: 'https://www.canva.com/design/' + c[1] + '/' + c[2] + '/view?embed' };
+  }
+  if (type === 'pdf') {
+    var d = raw.match(/^https:\/\/drive\.google\.com\/file\/d\/([\w-]+)/i) ||
+      raw.match(/^https:\/\/drive\.google\.com\/open\?id=([\w-]+)/i);
+    if (!d) throw new Error('請貼 Google 雲端硬碟裡 PDF 的分享連結（drive.google.com/file/d/…）');
+    return { slide_type: 'pdf', slide_url: 'https://drive.google.com/file/d/' + d[1] + '/preview' };
+  }
+  if (type === 'web') {
+    if (!/^https:\/\/[^\s"'<>]+$/.test(raw)) throw new Error('網址裡有不允許的字元');
+    return { slide_type: 'web', slide_url: raw };
+  }
+  throw new Error('簡報類型不正確');
+}
+
 function cleanText_(v, max) {
   return Array.from(String(v == null ? '' : v).trim().replace(/\s+/g, ' ')).slice(0, max).join('');
 }
@@ -402,7 +468,22 @@ function maskEmail_(email) {
 
 // ---------- 試算表工具 ----------
 
+/**
+ * 同一次呼叫裡，每張分頁只讀一次（Apps Script 每次呼叫都是全新環境，不會讀到上一次的舊資料）。
+ * 寫入時：updateRow_ 直接改快取裡的那一列；新增、整片覆寫、刪列則清掉快取，下次重讀。
+ */
+var TABLES_ = {};
+
 function table_(name) {
+  if (!TABLES_[name]) TABLES_[name] = readTable_(name);
+  return TABLES_[name];
+}
+
+function forget_(name) {
+  delete TABLES_[name];
+}
+
+function readTable_(name) {
   var sh = SpreadsheetApp.getActive().getSheetByName(name);
   if (!sh) throw new Error('試算表還沒初始化，請先在 Apps Script 執行 setupSheets');
   var values = sh.getDataRange().getValues();
@@ -431,6 +512,7 @@ function updateRow_(t, row, patch) {
 
 function appendObj_(t, obj) {
   appendRow_(t.sh, t.head.map(function (k) { return obj[k] == null ? '' : obj[k]; }));
+  forget_(t.sh.getName());
 }
 
 function appendRow_(sh, values) {
@@ -441,6 +523,7 @@ function appendRow_(sh, values) {
 
 /** 用剩下的資料整片覆寫，比一列一列刪快很多 */
 function rewriteRows_(t, keep) {
+  forget_(t.sh.getName());
   var width = t.head.length;
   var last = t.sh.getLastRow();
   if (last >= 2) t.sh.getRange(2, 1, last - 1, width).clearContent();

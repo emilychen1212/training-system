@@ -11,6 +11,7 @@
 | --- | --- |
 | `s/` | 學員問卷（GitHub Pages） |
 | `live/` | 課堂投影（GitHub Pages） |
+| `view/` | 簡報檢視頁（GitHub Pages） |
 | `assets/`、`config.js` | 學員端共用檔案與 API 網址設定 |
 | `gas-public/` | 公開 API（Apps Script，任何人可呼叫，只能寫入與讀統計） |
 | `gas-admin/` | 講師後台（Apps Script，綁在試算表，只有講師帳號能開） |

@@ -139,6 +139,12 @@ h2 { margin: 0; font-size: 19px; font-weight: 900; }
 .prize-row .qty { font-family: var(--num); color: var(--orange-ink); white-space: nowrap; }
 .dashed { border: 1px dashed var(--orange); border-radius: 12px; background: transparent; color: var(--orange-ink); font-weight: 700; min-height: 44px; cursor: pointer; width: 100%; }
 
+.slide-preview { aspect-ratio: 16 / 9; background: var(--navy); border-radius: 16px; overflow: hidden; margin-bottom: 16px; }
+.slide-preview { position: relative; }
+.slide-preview::before { content: "簡報載入中…"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #A9C1E6; }
+.slide-preview iframe { position: relative; width: 100%; height: 100%; border: 0; display: block; background: transparent; }
+.slide-preview .slide-empty { position: relative; background: var(--navy); }
+.slide-empty { height: 100%; display: flex; align-items: center; justify-content: center; padding: 20px; text-align: center; color: #A9C1E6; }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th { text-align: left; font-weight: 700; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }

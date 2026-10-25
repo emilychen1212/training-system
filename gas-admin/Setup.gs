@@ -79,7 +79,18 @@ function runSelfTest() {
   check('一般文字不變', safeCell_('你好=1') === '你好=1');
   check('CSV 也防注入', csvCell_('=HYPERLINK("x")') === '"\'=HYPERLINK(""x"")"');
 
-  // 3. 透過真正的公開 API 測試驗證、防重複與抽獎
+  // 3. 簡報連結
+  var canva = 'https://www.canva.com/design/DAAAAA1111/abcDEF_123-x/view?embed';
+  check('Canva 檢視連結', normalizeSlide_('canva', 'https://www.canva.com/design/DAAAAA1111/abcDEF_123-x/view?utm_content=x').slide_url === canva);
+  check('Canva 整段嵌入程式碼', normalizeSlide_('canva',
+    '<div><iframe loading="lazy" src="https://www.canva.com/design/DAAAAA1111/abcDEF_123-x/view?embed" allowfullscreen></iframe></div>').slide_url === canva);
+  check('雲端硬碟 PDF 連結', normalizeSlide_('pdf', 'https://drive.google.com/file/d/1AbC-xyz_9/view?usp=drive_link').slide_url ===
+    'https://drive.google.com/file/d/1AbC-xyz_9/preview');
+  check('簡報不接受 http', throws_(function () { normalizeSlide_('web', 'http://example.com'); }));
+  check('Canva 編輯連結會被擋', throws_(function () { normalizeSlide_('canva', 'https://www.canva.com/design/DAAAAA1111/edit'); }));
+  check('清空簡報', normalizeSlide_('pdf', '  ').slide_url === '');
+
+  // 4. 透過真正的公開 API 測試驗證、防重複與抽獎
   var url = PropertiesService.getScriptProperties().getProperty('PUBLIC_API_URL');
   if (!url) {
     check('公開 API 測試', false, '略過：請在指令碼屬性加上 PUBLIC_API_URL 後再執行一次');
@@ -99,6 +110,7 @@ function runApiTests_(url, check) {
       method: 'post', contentType: 'text/plain;charset=utf-8',
       payload: JSON.stringify(body), muteHttpExceptions: true, followRedirects: true
     });
+    TABLES_ = {}; // 公開 API 剛寫入試算表，後台手上的資料要重讀
     return JSON.parse(res.getContentText());
   }
   var good = { q1: 5, q2: 4, q3: '會', q4: '學生', q5: '測試留言' };
@@ -106,7 +118,7 @@ function runApiTests_(url, check) {
   var id = admin_saveCourse({
     title: '[自我測試] 請勿使用', date: now_('yyyy-MM-dd'), start_time: '09:00',
     org_name: '測試', org_type: '其他', prizes: [{ name: '測試獎', qty: 2 }]
-  });
+  }).detail.course.course_id;
   var code = findCourse_(id).survey_code;
   try {
     check('草稿課程不能填答', call({ action: 'submitResponse', survey_code: code, answers: good, elapsed: 10 }).error === 'NOT_OPEN');
@@ -185,6 +197,11 @@ function runApiTests_(url, check) {
   } finally {
     removeTestCourse_(id);
   }
+}
+
+function throws_(fn) {
+  try { fn(); } catch (err) { return true; }
+  return false;
 }
 
 function countRows_(name, courseId) {
