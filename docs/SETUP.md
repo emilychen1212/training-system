@@ -32,6 +32,7 @@
    - 點它右邊的「⋮」→ **重新命名**，改成 `Code`（會自動變成 `Code.gs`）。
    - 全選內容刪掉，貼上 `gas-admin/Code.gs` 的全部內容。
 4. 「檔案」旁邊的 **＋ → 指令碼**，命名 `Setup`，貼上 `gas-admin/Setup.gs`。
+   再建一個指令碼 `Templates`，貼上 `gas-admin/Templates.gs`。
 5. **＋ → HTML**，命名 `Index`，貼上 `gas-admin/Index.html`。
 6. 同樣再建兩個 HTML：`Styles`（貼 `Styles.html`）、`Scripts`（貼 `Scripts.html`）。
 7. 左邊齒輪 **專案設定** → 勾選 **在編輯器中顯示「appsscript.json」資訊清單檔案**。
@@ -81,7 +82,7 @@
 2. **專案設定 → 指令碼屬性**，新增 `PUBLIC_API_URL`，值是步驟 5 的 API 網址。
 3. 函式選 **runSelfTest**，按 **執行**（會再要求一次「連線到外部服務」的授權）。
 
-應該看到：執行紀錄最後一行是 `共 41 項，全部通過`。
+應該看到：執行紀錄最後一行是 `共 49 項，全部通過`。
 有 ❌ 就把整段紀錄複製給 Claude。測試會自己建一堂「[自我測試]」課程，跑完就刪掉。
 
 ## 步驟 7：填網站設定並上傳到 GitHub

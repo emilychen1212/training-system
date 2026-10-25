@@ -60,6 +60,7 @@ function admin_bootstrap() {
     productTags: tags,
     orgTypes: ORG_TYPES,
     courses: courses,
+    templates: templatesSummary_(),
     reminders: courses.filter(needsCleanup_).map(function (c) {
       return { course_id: c.course_id, title: c.title, date: c.date, entries: c.entry_count };
     })

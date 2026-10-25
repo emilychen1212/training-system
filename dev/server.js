@@ -32,7 +32,7 @@ function callPublic(body) {
   fresh(pub);
   return pub.doPost({ postData: { contents: body } }).getContent();
 }
-const admin = makeProject(ss, ['Code.gs', 'Setup.gs'].map((f) => path.join(ROOT, 'gas-admin', f)), {
+const admin = makeProject(ss, ['Code.gs', 'Templates.gs', 'Setup.gs'].map((f) => path.join(ROOT, 'gas-admin', f)), {
   UrlFetchApp: { fetch: (url, opt) => {
     const text = callPublic(opt.payload);
     return { getContentText: () => text, getResponseCode: () => 200 };
@@ -63,6 +63,12 @@ function seed() {
   });
   admin.admin_saveCourse({ title: 'VisualDx 臨床影像診斷工具', date: today.slice(0, 8) + '28', start_time: '10:00',
     org_name: '○○護理專科學校', org_type: '學校', product_tags: ['VisualDx'], prizes: [] });
+  const past = admin.admin_saveCourse({ title: 'Thieme 電子書講習', date: today.slice(0, 8) + '07', start_time: '10:00',
+    org_name: '○○大學 醫學圖書館', org_type: '學校', product_tags: ['Thieme'], prizes: [] }).detail.course.course_id;
+  admin.admin_setStatus(past, 'open');
+  admin.admin_setStatus(past, 'closed');
+  admin.admin_saveCourse({ title: 'Rayyan 系統性文獻回顧篩選', date: '2026-11-05', start_time: '13:30',
+    org_name: '○○醫院 教學部', org_type: '醫院', product_tags: ['Rayyan'], prizes: [] });
   console.log('示範課程代碼：' + code);
   console.log(`  學員問卷 http://localhost:${PORT}/s/?c=${code}`);
   console.log(`  課堂投影 http://localhost:${PORT}/live/?c=${code}`);

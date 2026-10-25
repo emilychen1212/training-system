@@ -5,7 +5,7 @@
   var boot = parseJson(document.getElementById('boot').getAttribute('data-initial'), {});
   var main = document.getElementById('main');
   var raffleEl = document.getElementById('raffle');
-  var S = { data: null, view: 'list', filter: 'all', detail: null, raffle: null, prize: null, drawing: false, reveal: null };
+  var S = { data: null, view: 'calendar', home: 'calendar', filter: 'all', detail: null, raffle: null, prize: null, drawing: false, reveal: null };
   var DAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
   var STATUS = { draft: '草稿', open: '開放填答中', closed: '已結束' };
 
@@ -184,16 +184,47 @@
     renderDetail();
   }
 
-  /** 先用手邊的資料馬上顯示列表，背景再更新一次 */
-  function backToList() {
-    showList();
-    reload().then(function () { if (S.view === 'list') renderList(); }).catch(fail);
+  /** 回到上一個主畫面（行事曆或課程列表）：先用手邊資料馬上顯示，背景再更新一次 */
+  function backHome() {
+    var home = S.home === 'list' ? 'list' : 'calendar';
+    if (home === 'list') showList(); else showCalendar();
+    reload().then(function () {
+      if (S.view === 'list') renderList();
+      if (S.view === 'calendar') renderCalendar();
+    }).catch(fail);
+  }
+
+  function setNav(name) {
+    [].forEach.call(document.querySelectorAll('[data-nav]'), function (b) {
+      b.classList.toggle('on', b.getAttribute('data-nav') === name);
+    });
+  }
+
+  /** 公版問卷草稿有沒存的修改時，離開前先問 */
+  function leaveGuard(go) {
+    if (S.view === 'templates' && S.tplEdit && S.tplEdit.dirty) {
+      confirmBox({ title: '離開這一頁？', text: '草稿有尚未儲存的修改，離開後會不見。', okText: '不儲存，離開', danger: true })
+        .then(function (yes) { if (yes) { S.tplEdit.dirty = false; go(); } });
+    } else {
+      go();
+    }
   }
 
   function showList() {
     S.view = 'list';
+    S.home = 'list';
     raffleEl.hidden = true;
+    setNav('list');
     renderList();
+    window.scrollTo(0, 0);
+  }
+
+  function showCalendar() {
+    S.view = 'calendar';
+    S.home = 'calendar';
+    raffleEl.hidden = true;
+    setNav('calendar');
+    renderCalendar();
     window.scrollTo(0, 0);
   }
 
@@ -228,9 +259,7 @@
     raffleEl.hidden = false;
     fill(raffleEl, h('div', { class: 'raffle-in' }, h('div', { class: 'loading', text: '載入中…' })));
     return call('admin_getRaffle', key).then(showRaffle).catch(function (err) {
-      raffleEl.hidden = true;
-      S.view = 'list';
-      renderList();
+      if (S.home === 'list') showList(); else showCalendar();
       fail(err);
     });
   }
@@ -242,6 +271,506 @@
     var next = prizes.filter(function (p) { return p.winners.length < p.qty; })[0];
     S.prize = (keep || next || prizes[0] || {}).name || null;
     renderRaffle();
+  }
+
+  // ---------- 行事曆 ----------
+
+  var MONTHS = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'];
+
+  function pad2(n) { return ('0' + n).slice(-2); }
+  function ymd(d) { return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+
+  function reminderBanner() {
+    if (!S.data.reminders.length) return null;
+    return h('div', { class: 'banner', role: 'alert' },
+      h('div', null,
+        h('b', { text: '有課程的抽獎資料已超過 30 天還沒清除' }),
+        h('ul', null, S.data.reminders.map(function (r) {
+          return h('li', null, h('button', { type: 'button', class: 'btn-text', style: 'min-height:32px;padding:0',
+            text: r.date + '　' + r.title + '（' + r.entries + ' 筆登記）', onclick: function () { openDetail(r.course_id); } }));
+        }))));
+  }
+
+  /** 平均滿意度（依回覆數加權）與回收率（只算有填實到人數的課） */
+  function scoreOf(courses) {
+    var q1sum = 0, q1n = 0, resp = 0, att = 0;
+    courses.forEach(function (c) {
+      if (c.avg_q1 !== null) { q1sum += c.avg_q1 * c.response_count; q1n += c.response_count; }
+      if (c.attendees) { resp += c.response_count; att += c.attendees; }
+    });
+    return { avg: q1n ? (q1sum / q1n).toFixed(1) : null, rate: att ? Math.round(resp / att * 100) : null };
+  }
+
+  function renderCalendar() {
+    var now = new Date();
+    if (!S.month) S.month = { y: now.getFullYear(), m: now.getMonth() };
+    var y = S.month.y, m = S.month.m;
+    var courses = S.data.courses;
+    var byDate = {};
+    courses.forEach(function (c) { (byDate[c.date] = byDate[c.date] || []).push(c); });
+    Object.keys(byDate).forEach(function (k) {
+      byDate[k].sort(function (a, b) { return (a.start_time || '').localeCompare(b.start_time || ''); });
+    });
+
+    var startDay = new Date(y, m, 1).getDay();
+    var weeks = Math.ceil((startDay + new Date(y, m + 1, 0).getDate()) / 7);
+    var todayKey = ymd(now);
+    var cells = [];
+    for (var i = 0; i < weeks * 7; i++) cells.push(dayCell(new Date(y, m, 1 - startDay + i), m, todayKey, byDate));
+
+    var monthKey = y + '-' + pad2(m + 1);
+    var inYear = courses.filter(function (c) { return c.date.slice(0, 4) === String(y); });
+    var score = scoreOf(inYear);
+    var upcoming = courses.filter(function (c) { return c.date >= todayKey; })
+      .sort(function (a, b) { return (a.date + a.start_time).localeCompare(b.date + b.start_time); }).slice(0, 6);
+
+    function go(delta) {
+      var d = new Date(y, m + delta, 1);
+      S.month = { y: d.getFullYear(), m: d.getMonth() };
+      renderCalendar();
+    }
+
+    fill(main,
+      h('div', { class: 'page-head' },
+        h('div', null, h('div', { class: 'eyebrow', text: MONTHS[m] + ' ' + y }), h('h1', { text: '訓練行事曆' })),
+        h('div', { class: 'row' },
+          h('button', { type: 'button', class: 'btn icon-nav', 'aria-label': '上個月', text: '‹', onclick: function () { go(-1); } }),
+          h('button', { type: 'button', class: 'btn', text: '今天', onclick: function () {
+            S.month = { y: now.getFullYear(), m: now.getMonth() };
+            renderCalendar();
+          } }),
+          h('button', { type: 'button', class: 'btn icon-nav', 'aria-label': '下個月', text: '›', onclick: function () { go(1); } }),
+          h('button', { type: 'button', class: 'btn btn-main', text: '＋ 新增課程', onclick: function () { openCourseDialog(null); } }))),
+      reminderBanner(),
+      h('div', { class: 'stats' },
+        stat((m + 1) + ' 月課程', courses.filter(function (c) { return c.date.slice(0, 7) === monthKey; }).length, '場'),
+        stat(y + ' 年累計', inYear.length, '場'),
+        stat('平均滿意度', score.avg === null ? '—' : score.avg, score.avg === null ? '' : '/ 5'),
+        stat('問卷回收率', score.rate === null ? '—' : score.rate, score.rate === null ? '' : '%', true)),
+      h('div', { class: 'cal-layout' },
+        h('div', { class: 'card cal-card' },
+          h('div', { class: 'cal-grid cal-head', 'aria-hidden': 'true' }, ['日', '一', '二', '三', '四', '五', '六'].map(function (w) {
+            return h('div', { text: w });
+          })),
+          h('div', { class: 'cal-grid' }, cells),
+          h('div', { class: 'legend' },
+            h('span', null, h('i', { class: 'lg lg-closed' }), '已結束'),
+            h('span', null, h('i', { class: 'lg lg-open' }), '開放填答中'),
+            h('span', null, h('i', { class: 'lg lg-draft' }), '草稿・未來排程'),
+            h('span', { class: 'note', text: '點空白處可直接在那天新增課程' }))),
+        h('aside', { class: 'upcoming' },
+          h('h2', { text: '接下來的課' }),
+          upcoming.length ? upcoming.map(upcomingCard) : h('div', { class: 'note', text: '接下來還沒有排課。' }))));
+  }
+
+  function dayCell(d, month, todayKey, byDate) {
+    var key = ymd(d);
+    var list = byDate[key] || [];
+    return h('div', { class: 'day' + (d.getMonth() === month ? '' : ' out') + (key === todayKey ? ' today' : '') },
+      h('button', { type: 'button', class: 'day-add', title: '在這天新增課程',
+        'aria-label': (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日，新增課程',
+        onclick: function () { openCourseDialog(null, { date: key }); } }),
+      h('span', { class: 'day-num', text: String(d.getDate()) }),
+      list.map(function (c) {
+        return h('button', { type: 'button', class: 'cal-chip chip-' + c.status,
+          title: c.title + (c.start_time ? '・' + c.start_time : '') + '（' + STATUS[c.status] + '）', text: c.title,
+          onclick: function () { openDetail(c.course_id); } });
+      }));
+  }
+
+  function upcomingCard(c) {
+    var p = c.date.split('-');
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    return h('button', { type: 'button', class: 'up-card', onclick: function () { openDetail(c.course_id); } },
+      h('div', { class: 'row', style: 'justify-content:space-between' },
+        h('span', { class: 'course-date', text: p[1] + '/' + p[2] + ' ' + DAYS[d.getDay()] + (c.start_time ? ' ' + c.start_time : '') }),
+        h('span', { class: 'pill pill-' + c.status, text: { draft: '草稿', open: '開放填答', closed: '已結束' }[c.status] })),
+      h('div', { class: 'course-title', text: c.title }),
+      h('div', { class: 'course-meta', text: [c.org_name, c.org_type].filter(Boolean).join('・') }));
+  }
+
+  // ---------- 公版問卷 ----------
+
+  var TYPE_NAMES = { rating: '1–5 評分', single: '單選', multi: '複選', yesno: '是／否', text: '文字' };
+  var TPL_STATUS = { draft: '草稿・編輯中', published: '使用中', archived: '已封存' };
+
+  function tplBy(status) { return S.data.templates.filter(function (t) { return t.status === status; })[0]; }
+  function freshEdit(draft) {
+    return { version: draft.version, questions: JSON.parse(JSON.stringify(draft.questions)), note: draft.change_note || '', dirty: false, open: -1 };
+  }
+
+  function showTemplates(version) {
+    S.view = 'templates';
+    raffleEl.hidden = true;
+    setNav('templates');
+    var draft = tplBy('draft');
+    var all = S.data.templates;
+    if (version) S.tplSel = version;
+    if (!all.some(function (t) { return t.version === S.tplSel; })) S.tplSel = (draft || tplBy('published') || all[0]).version;
+    if (!draft) S.tplEdit = null;
+    else if (!S.tplEdit || S.tplEdit.version !== draft.version) S.tplEdit = freshEdit(draft);
+    renderTemplates();
+    window.scrollTo(0, 0);
+  }
+
+  /** 伺服器回傳最新資料後：草稿以伺服器為準，畫面跟著更新 */
+  function applyTemplates(v) {
+    setData(v.boot);
+    var draft = tplBy('draft');
+    S.tplEdit = draft ? freshEdit(draft) : null;
+    showTemplates(v.version);
+  }
+
+  function summaryOf(q) {
+    var o = q.options || [];
+    if (q.type === 'rating') return '1 ' + (o[0] || '') + ' ⋯ 5 ' + (o[1] || '');
+    if (q.type === 'yesno') return '是・否';
+    if (q.type === 'text') return '最多 ' + (q.maxLength || 500) + ' 字';
+    return o.filter(Boolean).join('・') || '（還沒有選項）';
+  }
+
+  function renderTemplates() {
+    var all = S.data.templates;
+    var draft = tplBy('draft');
+    var pub = tplBy('published');
+    var sel = all.filter(function (t) { return t.version === S.tplSel; })[0];
+    var isDraft = sel.status === 'draft';
+    var questions = isDraft ? S.tplEdit.questions : sel.questions;
+
+    var versions = h('div', { class: 'timeline' }, all.map(function (t) {
+      var meta = t.status === 'draft' ? t.questions.length + ' 題・編輯中'
+        : (t.published_at || '').slice(0, 10).replace(/-/g, '/') + '・' + t.questions.length + ' 題・用於 ' + t.course_count + ' 堂課';
+      return h('button', { type: 'button', class: 'ver ver-' + t.status + (t.version === S.tplSel ? ' on' : ''),
+        'aria-pressed': String(t.version === S.tplSel),
+        onclick: function () { S.tplSel = t.version; renderTemplates(); } },
+        h('div', { class: 'row', style: 'justify-content:space-between' },
+          h('b', { class: 'num', text: 'v' + t.version }),
+          h('span', { class: 'ver-tag', text: TPL_STATUS[t.status] })),
+        h('div', { class: 'note', text: meta }),
+        t.change_note ? h('div', { class: 'ver-note', text: t.change_note }) : null);
+    }));
+
+    fill(main,
+      h('div', { class: 'page-head' },
+        h('div', null, h('div', { class: 'eyebrow', text: 'SURVEY TEMPLATE' }), h('h1', { text: '公版問卷' })),
+        h('div', { class: 'row' },
+          h('button', { type: 'button', class: 'btn', text: '手機預覽', onclick: function () { openPreview(questions, 'v' + sel.version); } }),
+          draft ? h('button', { type: 'button', class: 'btn btn-main', text: '發布為 v' + draft.version, onclick: publishDraft }) : null)),
+      h('div', { class: 'info', text: '每堂課建立時會「釘選」當下的公版版本。發布新版本只影響之後建立的課程，已開課的問卷與統計不會被改動。' }),
+      h('div', { class: 'tpl-layout' },
+        h('div', { class: 'card tpl-side' },
+          h('h2', { text: '版本紀錄', style: 'margin-bottom:14px' }),
+          versions,
+          h('div', { class: 'row', style: 'margin-top:16px' },
+            h('button', { type: 'button', class: 'btn btn-sm grow', text: '比較兩版', disabled: all.length < 2, onclick: openCompare }),
+            h('button', { type: 'button', class: 'btn btn-sm grow', text: '從 v' + sel.version + ' 複製',
+              disabled: !!draft, title: draft ? '已經有 v' + draft.version + ' 草稿，請先發布或刪除' : null,
+              onclick: function () { copyToDraft(sel.version); } })),
+          draft && !isDraft ? h('div', { class: 'note', style: 'margin-top:10px', text: '已經有 v' + draft.version + ' 草稿，同時只能有一份。' }) : null),
+        h('div', { class: 'tpl-main' }, isDraft ? draftEditor(pub) : readOnly(sel))));
+  }
+
+  function readOnly(t) {
+    return [
+      h('div', { class: 'row', style: 'margin-bottom:12px' },
+        h('h2', { text: 'v' + t.version + '・' + TPL_STATUS[t.status] }),
+        h('span', { class: 'note', text: '只有草稿可以編輯；要修改請按左邊「從 v' + t.version + ' 複製」。' })),
+      t.questions.map(function (q, i) { return questionCard(q, i, false, false); })
+    ];
+  }
+
+  function draftEditor(pub) {
+    var e = S.tplEdit;
+    var pubIds = pub ? pub.questions.map(function (q) { return q.id; }) : [];
+    var note = h('input', { class: 'input', maxlength: '100', placeholder: '例：新增「得知管道」題', 'aria-label': '這一版改了什麼', id: 'tplNote' });
+    note.value = e.note;
+    note.addEventListener('input', function () { e.note = note.value; markDirty(); });
+
+    var barText = h('span', { class: 'note' });
+    var saveBtn = h('button', { type: 'button', class: 'btn btn-blue btn-sm', text: '儲存草稿', onclick: saveDraft });
+    S.tplBar = { text: barText, btn: saveBtn };
+    refreshBar();
+
+    return [
+      h('label', { class: 'field', style: 'margin-bottom:14px' }, h('span', { text: '這一版改了什麼（發布時必填）' }), note),
+      e.questions.map(function (q, i) {
+        var isNew = !q.id || pubIds.indexOf(q.id) < 0;
+        return i === e.open ? editCard(q, i) : questionCard(q, i, true, isNew);
+      }),
+      h('div', { class: 'add-q' },
+        h('b', { text: '＋ 新增題目' }),
+        Object.keys(TYPE_NAMES).map(function (type) {
+          return h('button', { type: 'button', class: 'chip', text: TYPE_NAMES[type], onclick: function () { addQuestion(type); } });
+        })),
+      h('div', { class: 'savebar' },
+        barText,
+        h('div', { class: 'grow' }),
+        h('button', { type: 'button', class: 'btn-text btn-danger', text: '刪除草稿', onclick: deleteDraft }),
+        saveBtn)
+    ];
+  }
+
+  function markDirty() {
+    S.tplEdit.dirty = true;
+    refreshBar();
+  }
+  function refreshBar() {
+    if (!S.tplBar) return;
+    var dirty = S.tplEdit && S.tplEdit.dirty;
+    S.tplBar.text.textContent = dirty ? '有尚未儲存的修改' : '草稿已儲存';
+    S.tplBar.btn.disabled = !dirty;
+  }
+
+  function questionCard(q, i, editable, isNew) {
+    var card = h('div', { class: 'q-card' },
+      h('div', { class: 'q-side' },
+        h('span', { class: 'q-no', text: String(i + 1) }),
+        editable ? h('span', { class: 'grip', title: '拖曳調整順序', 'aria-hidden': 'true', text: '⋮⋮' }) : null),
+      h('div', { class: 'q-main' },
+        h('div', { class: 'row', style: 'gap:8px' },
+          h('span', { class: 'pill', text: TYPE_NAMES[q.type] }),
+          h('span', { class: 'note', text: q.required ? '必填' : '選填' }),
+          editable && isNew ? h('span', { class: 'pill pill-draft', text: 'v' + S.tplEdit.version + ' 新增' }) : null),
+        h('div', { class: 'q-text', text: q.label || '（還沒寫題目）' }),
+        h('div', { class: 'note', text: summaryOf(q) })),
+      editable ? h('div', { class: 'q-tools' },
+        h('button', { type: 'button', class: 'icon-btn', 'aria-label': '往上移', text: '↑', disabled: i === 0, onclick: function () { moveQ(i, i - 1); } }),
+        h('button', { type: 'button', class: 'icon-btn', 'aria-label': '往下移', text: '↓', disabled: i === S.tplEdit.questions.length - 1,
+          onclick: function () { moveQ(i, i + 1); } }),
+        h('button', { type: 'button', class: 'icon-btn', 'aria-label': '編輯第 ' + (i + 1) + ' 題', text: '✎',
+          onclick: function () { S.tplEdit.open = i; renderTemplates(); } })) : null);
+    if (editable) {
+      card.draggable = true;
+      card.addEventListener('dragstart', function (ev) { S.dragFrom = i; card.classList.add('dragging'); ev.dataTransfer.effectAllowed = 'move'; });
+      card.addEventListener('dragend', function () { card.classList.remove('dragging'); });
+      card.addEventListener('dragover', function (ev) { ev.preventDefault(); card.classList.add('drop'); });
+      card.addEventListener('dragleave', function () { card.classList.remove('drop'); });
+      card.addEventListener('drop', function (ev) { ev.preventDefault(); if (S.dragFrom !== undefined) moveQ(S.dragFrom, i); S.dragFrom = undefined; });
+    }
+    return card;
+  }
+
+  function editCard(q, i) {
+    var e = S.tplEdit;
+    var label = h('input', { class: 'input', maxlength: '100', placeholder: '題目文字', 'aria-label': '題目文字' });
+    label.value = q.label;
+    label.addEventListener('input', function () { q.label = label.value; markDirty(); });
+    var req = h('input', { type: 'checkbox' });
+    req.checked = !!q.required;
+    req.addEventListener('change', function () { q.required = req.checked; markDirty(); });
+
+    var typeCtl = q.id
+      ? h('div', { class: 'note', text: '題型：' + TYPE_NAMES[q.type] + '（既有題目不能改題型，統計才能跨版本合併）' })
+      : h('div', { class: 'seg' }, Object.keys(TYPE_NAMES).map(function (type) {
+        return h('button', { type: 'button', class: 'chip', 'aria-pressed': String(q.type === type), text: TYPE_NAMES[type], onclick: function () {
+          q.type = type;
+          q.options = defaultOptions(type);
+          if (type === 'text') q.maxLength = 500; else delete q.maxLength;
+          markDirty();
+          renderTemplates();
+        } });
+      }));
+
+    var body = null;
+    if (q.type === 'single' || q.type === 'multi') {
+      q.options = q.options || [];
+      body = h('div', { class: 'stack', style: 'gap:8px' },
+        h('span', { class: 'note', text: '選項（2～20 個，每個最多 100 字）' }),
+        q.options.map(function (o, j) {
+          var inp = h('input', { class: 'input', maxlength: '100', 'aria-label': '選項 ' + (j + 1) });
+          inp.value = o;
+          inp.addEventListener('input', function () { q.options[j] = inp.value; markDirty(); });
+          return h('div', { class: 'row', style: 'flex-wrap:nowrap' }, inp,
+            h('button', { type: 'button', class: 'icon-btn', 'aria-label': '刪除這個選項', text: '×', disabled: q.options.length <= 2,
+              onclick: function () { q.options.splice(j, 1); markDirty(); renderTemplates(); } }));
+        }),
+        h('button', { type: 'button', class: 'btn btn-sm', text: '＋ 新增選項', disabled: q.options.length >= 20, onclick: function () {
+          q.options.push('');
+          markDirty();
+          renderTemplates();
+          var inputs = document.querySelectorAll('.q-edit .stack input');
+          if (inputs.length) inputs[inputs.length - 1].focus();
+        } }));
+    } else if (q.type === 'rating') {
+      q.options = q.options || ['', ''];
+      body = h('div', { class: 'grid2' }, [0, 1].map(function (j) {
+        var inp = h('input', { class: 'input', maxlength: '20' });
+        inp.value = q.options[j] || '';
+        inp.addEventListener('input', function () { q.options[j] = inp.value; markDirty(); });
+        return h('label', { class: 'field' }, h('span', { text: j ? '5 分的說明' : '1 分的說明' }), inp);
+      }));
+    } else if (q.type === 'text') {
+      var max = h('input', { class: 'input', type: 'number', min: '1', max: '500', style: 'max-width:140px' });
+      max.value = q.maxLength || 500;
+      max.addEventListener('input', function () { q.maxLength = Number(max.value) || 500; markDirty(); });
+      body = h('label', { class: 'field' }, h('span', { text: '字數上限（最多 500）' }), max);
+    }
+
+    return h('div', { class: 'q-card q-edit' },
+      h('div', { class: 'q-side' }, h('span', { class: 'q-no', text: String(i + 1) })),
+      h('div', { class: 'q-main stack', style: 'gap:14px' },
+        label,
+        h('label', { class: 'row consent' }, req, '必填'),
+        typeCtl,
+        body,
+        h('div', { class: 'row' },
+          h('button', { type: 'button', class: 'btn btn-sm', text: '完成', onclick: function () { e.open = -1; renderTemplates(); } }),
+          h('button', { type: 'button', class: 'btn-text btn-danger', text: '刪除這題', disabled: e.questions.length <= 1, onclick: function () {
+            e.questions.splice(i, 1);
+            e.open = -1;
+            markDirty();
+            renderTemplates();
+          } }))));
+  }
+
+  function defaultOptions(type) {
+    if (type === 'single' || type === 'multi') return ['', ''];
+    if (type === 'rating') return ['非常不滿意', '非常滿意'];
+    return undefined;
+  }
+
+  function addQuestion(type) {
+    var e = S.tplEdit;
+    if (e.questions.length >= 15) { toast('每一版最多 15 題', true); return; }
+    var q = { type: type, label: '', required: false };
+    if (defaultOptions(type)) q.options = defaultOptions(type);
+    if (type === 'text') q.maxLength = 500;
+    e.questions.push(q);
+    e.open = e.questions.length - 1;
+    markDirty();
+    renderTemplates();
+    var inp = document.querySelector('.q-edit input');
+    if (inp) { inp.focus(); inp.scrollIntoView({ block: 'center' }); }
+  }
+
+  function moveQ(from, to) {
+    var list = S.tplEdit.questions;
+    if (to < 0 || to >= list.length || from === to) return;
+    var q = list.splice(from, 1)[0];
+    list.splice(to, 0, q);
+    S.tplEdit.open = -1;
+    markDirty();
+    renderTemplates();
+  }
+
+  function saveDraft() {
+    S.tplBar.btn.disabled = true;
+    call('admin_saveDraft', S.tplEdit.questions, S.tplEdit.note).then(function (v) {
+      applyTemplates(v);
+      toast('已儲存草稿');
+    }).catch(function (err) { refreshBar(); fail(err); });
+  }
+
+  function publishDraft() {
+    var e = S.tplEdit;
+    if (!e.note.trim()) {
+      toast('請先填「這一版改了什麼」', true);
+      var n = document.getElementById('tplNote');
+      if (n) n.focus();
+      return;
+    }
+    confirmBox({ title: '發布 v' + e.version + '？',
+      text: '發布後，之後新建立的課程會用 v' + e.version + '；已經建立的課程維持原本的版本，問卷與統計都不受影響。', okText: '發布' })
+      .then(function (yes) {
+        if (!yes) return;
+        return call('admin_publishDraft', e.questions, e.note).then(function (v) {
+          applyTemplates(v);
+          toast('已發布 v' + v.version);
+        });
+      }).catch(fail);
+  }
+
+  function deleteDraft() {
+    confirmBox({ title: '刪除 v' + S.tplEdit.version + ' 草稿？', text: '草稿裡的修改會全部刪除，已發布的版本不受影響。', okText: '刪除草稿', danger: true })
+      .then(function (yes) {
+        if (!yes) return;
+        return call('admin_deleteDraft').then(function (v) {
+          applyTemplates(v);
+          toast('已刪除草稿');
+        });
+      }).catch(fail);
+  }
+
+  function copyToDraft(version) {
+    call('admin_copyToDraft', version).then(function (v) {
+      applyTemplates(v);
+      toast('已從 v' + version + ' 複製成 v' + v.version + ' 草稿');
+    }).catch(fail);
+  }
+
+  // ---------- 對話框：比較兩版、手機預覽 ----------
+
+  function openPanel(title, nodes, wide) {
+    var dlg = document.getElementById('panelDialog');
+    dlg.classList.toggle('wide', !!wide);
+    document.getElementById('panelTitle').textContent = title;
+    fill(document.getElementById('panelBody'), nodes);
+    if (!dlg.open) dlg.showModal();
+  }
+
+  function openCompare() {
+    var all = S.data.templates;
+    var draft = tplBy('draft');
+    var pub = tplBy('published');
+    var to = S.tplSel;
+    var from = (to === (pub && pub.version) ? all.filter(function (t) { return t.version < to; })[0] : pub) || all[all.length - 1];
+    function select(value) {
+      return h('select', { class: 'input', 'aria-label': '版本' }, all.map(function (t) {
+        return h('option', { value: String(t.version), selected: t.version === value, text: 'v' + t.version + '・' + TPL_STATUS[t.status] });
+      }));
+    }
+    var a = select(from.version);
+    var b = select(to);
+    var out = h('div', { class: 'stack', style: 'gap:14px' });
+    function run() {
+      fill(out, h('div', { class: 'note', text: '比較中…' }));
+      call('admin_compare', Number(a.value), Number(b.value)).then(function (r) {
+        function section(title, items, render) {
+          return h('div', { class: 'diff' },
+            h('b', { text: title + '（' + items.length + '）' }),
+            items.length ? h('ul', null, items.map(render)) : h('div', { class: 'note', text: '沒有' }));
+        }
+        fill(out,
+          section('新增的題目', r.added, function (q) { return h('li', { text: TYPE_NAMES[q.type] + '｜' + q.label }); }),
+          section('刪除的題目', r.removed, function (q) { return h('li', { text: TYPE_NAMES[q.type] + '｜' + q.label }); }),
+          section('修改的題目', r.changed, function (q) {
+            return h('li', null, h('div', { text: q.label }), h('ul', null, q.diffs.map(function (d) { return h('li', { class: 'note', text: d }); })));
+          }),
+          r.reordered ? h('div', { class: 'note', text: '題目順序也有調整。' }) : null,
+          draft && S.tplEdit && S.tplEdit.dirty ? h('div', { class: 'note', text: '草稿還有沒儲存的修改，這裡比較的是上次儲存的內容。' }) : null);
+      }).catch(function (err) { fill(out, h('div', { class: 'form-error', text: err.message })); });
+    }
+    a.addEventListener('change', run);
+    b.addEventListener('change', run);
+    openPanel('比較兩版', [h('div', { class: 'grid2' },
+      h('label', { class: 'field' }, h('span', { text: '舊版' }), a),
+      h('label', { class: 'field' }, h('span', { text: '新版' }), b)), out], true);
+    run();
+  }
+
+  function openPreview(questions, label) {
+    var phone = h('div', { class: 'phone' },
+      h('div', { class: 'pv-top' }, h('div', { class: 'pv-eyebrow', text: 'ONE-MINUTE FEEDBACK' }), h('div', { class: 'pv-title', text: '課後回饋預覽（' + label + '）' })),
+      h('div', { class: 'pv-body' }, questions.map(function (q, i) {
+        var ctl;
+        if (q.type === 'rating') {
+          ctl = [h('div', { class: 'pv-rating' }, [1, 2, 3, 4, 5].map(function (n) { return h('span', { text: String(n) }); })),
+            h('div', { class: 'pv-ends' }, h('span', { text: '1 ' + ((q.options || [])[0] || '') }), h('span', { text: '5 ' + ((q.options || [])[1] || '') }))];
+        } else if (q.type === 'text') {
+          ctl = h('div', { class: 'pv-text', text: '留下您的想法' });
+        } else {
+          var opts = q.type === 'yesno' ? ['是', '否'] : (q.options || []).filter(Boolean);
+          ctl = h('div', { class: 'pv-choices' + (q.type === 'yesno' ? ' two' : '') }, opts.map(function (o) {
+            return h('span', { class: q.type === 'multi' ? 'box' : '', text: o });
+          }));
+        }
+        return h('div', { class: 'pv-q' },
+          h('div', { class: 'pv-tag' + (q.required ? ' req' : ''), text: 'Q' + (i + 1) + '・' + (q.required ? '必填' : '選填') }),
+          h('div', { class: 'pv-label', text: q.label || '（還沒寫題目）' }),
+          q.type === 'multi' ? h('div', { class: 'pv-ends', style: 'margin:-6px 0 8px', text: '可複選' }) : null,
+          ctl);
+      }), h('div', { class: 'pv-submit', text: '送出回饋 →' })));
+    openPanel('手機預覽', [phone]);
   }
 
   // ---------- 課程列表 ----------
@@ -266,15 +795,7 @@
         h('div', null, h('div', { class: 'eyebrow', text: 'COURSES' }), h('h1', { text: '課程列表' })),
         h('button', { type: 'button', class: 'btn btn-main', text: '＋ 新增課程', onclick: function () { openCourseDialog(null); } })
       ),
-      S.data.reminders.length ? h('div', { class: 'banner', role: 'alert' },
-        h('div', null,
-          h('b', { text: '有課程的抽獎資料已超過 ' + 30 + ' 天還沒清除' }),
-          h('ul', null, S.data.reminders.map(function (r) {
-            return h('li', null, h('button', { type: 'button', class: 'btn-text', style: 'min-height:32px;padding:0',
-              text: r.date + '　' + r.title + '（' + r.entries + ' 筆登記）', onclick: function () { openDetail(r.course_id); } }));
-          }))
-        )
-      ) : null,
+      reminderBanner(),
       h('div', { class: 'stats' },
         stat('本月課程', thisMonth, '場'),
         stat('本年度累計', thisYear, '場'),
@@ -363,7 +884,7 @@
     });
 
     var head = [
-      h('button', { type: 'button', class: 'back', text: '‹ 回到課程列表', onclick: backToList }),
+      h('button', { type: 'button', class: 'back', text: '‹ 回到' + (S.home === 'list' ? '課程列表' : '行事曆'), onclick: backHome }),
       h('div', { class: 'detail-meta' },
         h('span', { class: 'when', text: dateLabel(c) }),
         statusPill(c.status),
@@ -382,7 +903,7 @@
         h('div', { class: 'stack', style: 'gap:10px' },
           h('h2', { text: '課後回饋' }),
           h('div', { class: 'link-line', text: shortUrl(url) }),
-          h('div', { class: 'note' }, '使用公版問卷 ', h('b', { text: 'v' + c.template_version }), '・' + lockNote),
+          h('div', { class: 'note' }, '使用公版問卷 ', versionPicker(c), '・' + lockNote),
           h('div', { class: 'row' },
             h('button', { type: 'button', class: 'btn btn-sm', text: '複製連結', onclick: function () { copyText(url); } }),
             h('button', { type: 'button', class: 'btn btn-sm', text: '下載 QR', onclick: function () {
@@ -442,6 +963,23 @@
     fill(S.dom.rest, rest);
     renderSlideCard();
     fill(main, S.dom.head, h('div', { class: 'detail-grid' }, S.dom.slide, S.dom.right), S.dom.rest);
+  }
+
+  /** 還沒有人填答時可以換問卷版本；有回覆後鎖定 */
+  function versionPicker(c) {
+    if (c.response_count > 0) return h('b', { text: 'v' + c.template_version });
+    var sel = h('select', { class: 'mini-select', 'aria-label': '問卷版本' },
+      S.data.templates.filter(function (t) { return t.status !== 'draft'; }).map(function (t) {
+        return h('option', { value: String(t.version), selected: String(t.version) === String(c.template_version),
+          text: 'v' + t.version + (t.status === 'published' ? '（使用中）' : '（已封存）') });
+      }));
+    sel.addEventListener('change', function () {
+      call('admin_setTemplateVersion', c.course_id, sel.value).then(function (v) {
+        applyView(v);
+        toast('這堂課改用 v' + sel.value);
+      }).catch(function (err) { fail(err); renderDetail(); });
+    });
+    return sel;
   }
 
   // ---------- 課堂簡報 ----------
@@ -817,11 +1355,23 @@
 
   // ---------- 啟動 ----------
 
-  document.querySelector('[data-nav="list"]').addEventListener('click', backToList);
+  document.querySelector('[data-nav="calendar"]').addEventListener('click', function () {
+    leaveGuard(function () { S.home = 'calendar'; backHome(); });
+  });
+  document.querySelector('[data-nav="list"]').addEventListener('click', function () {
+    leaveGuard(function () { S.home = 'list'; backHome(); });
+  });
+  document.querySelector('[data-nav="templates"]').addEventListener('click', function () {
+    leaveGuard(function () { showTemplates(); });
+  });
+  document.getElementById('panelClose').addEventListener('click', function () { document.getElementById('panelDialog').close(); });
+  window.addEventListener('beforeunload', function (ev) {
+    if (S.view === 'templates' && S.tplEdit && S.tplEdit.dirty) { ev.preventDefault(); ev.returnValue = ''; }
+  });
 
   setInterval(function () {
     if (document.hidden || S.view !== 'detail' || !S.detail || S.detail.course.status !== 'open') return;
-    if (document.querySelector('dialog[open]') || (document.activeElement && document.activeElement.tagName === 'INPUT')) return;
+    if (document.querySelector('dialog[open]') || (document.activeElement && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName))) return;
     openDetail(S.detail.course.course_id, true);
   }, 15000);
 
@@ -836,7 +1386,9 @@
     if (boot.page === 'raffle' && boot.code) return openRaffle(boot.code);
     var byCode = boot.code && S.data.courses.filter(function (c) { return c.survey_code === boot.code; })[0];
     if (byCode) return openDetail(byCode.course_id);
-    showList();
+    if (boot.page === 'templates') return showTemplates();
+    if (boot.page === 'list') return showList();
+    showCalendar();
   }).catch(function (err) {
     fill(main, h('div', { class: 'card' }, h('h2', { text: '載入失敗' }), h('p', { text: err.message })));
   });

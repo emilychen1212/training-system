@@ -90,7 +90,24 @@ function runSelfTest() {
   check('Canva 編輯連結會被擋', throws_(function () { normalizeSlide_('canva', 'https://www.canva.com/design/DAAAAA1111/edit'); }));
   check('清空簡報', normalizeSlide_('pdf', '  ').slide_url === '');
 
-  // 4. 透過真正的公開 API 測試驗證、防重複與抽獎
+  // 4. 公版問卷（只用記憶體裡的資料測，不動真的試算表）
+  var v1 = TEMPLATE_V1;
+  var v2 = [v1[0], { id: 'q2', type: 'rating', label: v1[1].label, required: false, options: v1[1].options },
+    { id: 'q6', type: 'multi', label: '您是從哪裡得知這場課程？', required: false, options: ['公告', '老師推薦'] }, v1[2], v1[4]];
+  var diff = compareTemplates_(v1, v2);
+  check('比較兩版：新增', diff.added.length === 1 && diff.added[0].id === 'q6');
+  check('比較兩版：刪除', diff.removed.length === 1 && diff.removed[0].id === 'q4');
+  check('比較兩版：修改', diff.changed.length === 1 && diff.changed[0].id === 'q2' && diff.changed[0].diffs[0] === '改成選填');
+  var fakeRows = [{ questions_json: JSON.stringify(v1) }, { questions_json: JSON.stringify([{ id: 'q7', type: 'text', label: '舊題' }]) }];
+  var cleaned = cleanQuestions_([v1[0], { type: 'yesno', label: '新題目', required: true }], fakeRows);
+  check('新題目取下一個沒用過的編號（刪掉的不重用）', cleaned[1].id === 'q8', cleaned[1].id);
+  check('既有題目不能改題型', throws_(function () { cleanQuestions_([{ id: 'q1', type: 'text', label: 'x' }], fakeRows); }));
+  check('單選至少 2 個選項', throws_(function () { cleanQuestions_([{ type: 'single', label: 'x', options: ['只有一個'] }], fakeRows); }));
+  check('每版最多 15 題', throws_(function () {
+    cleanQuestions_(new Array(16).join('.').split('.').map(function () { return { type: 'yesno', label: 'x' }; }), fakeRows);
+  }));
+
+  // 5. 透過真正的公開 API 測試驗證、防重複與抽獎
   var url = PropertiesService.getScriptProperties().getProperty('PUBLIC_API_URL');
   if (!url) {
     check('公開 API 測試', false, '略過：請在指令碼屬性加上 PUBLIC_API_URL 後再執行一次');
@@ -146,6 +163,7 @@ function runApiTests_(url, check) {
       tokens.push(r.raffle_token);
     }
     check('正常填答 3 份', countRows_('responses', id) === before + 3);
+    check('已有回覆的課程不能換問卷版本', throws_(function () { admin_setTemplateVersion(id, findCourse_(id).template_version); }));
     check('抽獎沒勾同意會被擋', call({ action: 'registerRaffle', survey_code: code, name: '測試', email: 'a@test.com',
       consent: false, raffle_token: tokens[0] }).error === 'CONSENT_REQUIRED');
     check('Email 格式錯誤會被擋', call({ action: 'registerRaffle', survey_code: code, name: '測試', email: 'not-mail',

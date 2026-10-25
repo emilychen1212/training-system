@@ -21,9 +21,9 @@
         </div>
       </div>
       <nav class="nav" aria-label="主選單">
-        <button type="button" class="on" data-nav="list">課程列表</button>
-        <button type="button" disabled>行事曆 <span class="soon">第 2 階段</span></button>
-        <button type="button" disabled>公版問卷 <span class="soon">第 2 階段</span></button>
+        <button type="button" class="on" data-nav="calendar">行事曆</button>
+        <button type="button" data-nav="list">課程列表</button>
+        <button type="button" data-nav="templates">公版問卷</button>
         <button type="button" disabled>成效統計 <span class="soon">第 3 階段</span></button>
       </nav>
       <div class="side-foot">
@@ -88,6 +88,14 @@
         <button type="button" class="btn btn-blue" id="confirmOk">確定</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="panelDialog" aria-labelledby="panelTitle">
+    <div class="dialog-body">
+      <h2 id="panelTitle"></h2>
+      <div id="panelBody" class="stack" style="gap:14px"></div>
+    </div>
+    <div class="dialog-foot"><button type="button" class="btn" id="panelClose">關閉</button></div>
   </dialog>
 
   <div id="toast" class="toast" role="status" hidden></div>
