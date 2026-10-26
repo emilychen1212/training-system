@@ -235,7 +235,7 @@
       var known = S.data.courses.filter(function (x) { return x.course_id === courseId; })[0];
       if (known) {
         // 先用列表裡已有的資料畫出來，最新回饋等資料回來再補上
-        S.detail = { course: known, questions: [], latest: [], loading: true,
+        S.detail = { course: known, questions: [], responses: [], loading: true,
           raffle: { frozen: known.status === 'closed', cleared: !!known.raffle_cleared_at, entry_count: known.entry_count,
             winner_count: known.winner_count, remaining: 0,
             prizes: known.prizes.map(function (p) { return { name: p.name, qty: p.qty, winners: [] }; }) } };
@@ -1162,17 +1162,6 @@
       }).catch(fail);
     });
 
-    var latestHead = d.questions.map(function (q) { return h('th', { class: 'q', title: q.label, text: q.label }); });
-    var latestRows = d.latest.map(function (row) {
-      return h('tr', null,
-        h('td', { class: 'num', text: row.submitted_at.slice(5, 16) }),
-        d.questions.map(function (q) {
-          var v = row.answers[q.id];
-          var text = v === undefined || v === '' ? '—' : Array.isArray(v) ? v.join('、') : String(v);
-          return h('td', { class: q.type === 'rating' ? 'n' : q.type === 'text' ? 't' : '', text: text });
-        }));
-    });
-
     var head = [
       h('button', { type: 'button', class: 'back', text: '‹ 回到' + (S.home === 'list' ? '課程列表' : '行事曆'), onclick: backHome }),
       h('div', { class: 'detail-meta' },
@@ -1227,15 +1216,6 @@
     ];
 
     var rest = [
-      h('div', { class: 'card', style: 'margin-top:20px' },
-        h('div', { class: 'card-head' },
-          h('div', { class: 'row' }, h('h2', { text: '最新回饋' }),
-            c.status === 'open' ? h('span', { class: 'note', text: '每 15 秒自動更新' }) : null),
-          h('a', { class: 'btn btn-sm', href: S.data.responsesUrl, target: '_blank', rel: 'noopener', text: '在試算表中開啟' })),
-        d.latest.length ? h('div', { class: 'table-wrap' },
-          h('table', null, h('thead', null, h('tr', null, h('th', { text: '時間' }), latestHead)), h('tbody', null, latestRows))
-        ) : h('div', { class: 'note', text: d.loading ? '載入中…' : '還沒有回饋。' }),
-        d.latest.length >= 20 ? h('div', { class: 'note', style: 'margin-top:10px', text: '只顯示最新 20 筆，完整資料請到試算表查看。' }) : null),
       canDelete ? h('div', { style: 'margin-top:24px' },
         h('button', { type: 'button', class: 'btn-text btn-danger', text: '刪除這堂課', onclick: function () { deleteCourse(c); } })) : null
     ];
@@ -1245,14 +1225,17 @@
       fill(S.dom.head, head);
       fill(S.dom.right, right);
       fill(S.dom.rest, rest);
+      renderFeedback();
       return;
     }
-    S.dom = { courseId: c.course_id, head: h('div'), slide: h('div', { class: 'card' }), right: h('div', { class: 'stack' }), rest: h('div') };
+    S.dom = { courseId: c.course_id, head: h('div'), slide: h('div', { class: 'card' }), right: h('div', { class: 'stack' }),
+      fb: h('div'), rest: h('div') };
     fill(S.dom.head, head);
     fill(S.dom.right, right);
     fill(S.dom.rest, rest);
     renderSlideCard();
-    fill(main, S.dom.head, h('div', { class: 'detail-grid' }, S.dom.slide, S.dom.right), S.dom.rest);
+    renderFeedback(true);
+    fill(main, S.dom.head, h('div', { class: 'detail-grid' }, S.dom.slide, S.dom.right), S.dom.fb, S.dom.rest);
   }
 
   /** 還沒有人填答時可以換問卷版本；有回覆後鎖定 */
@@ -1270,6 +1253,111 @@
       }).catch(function (err) { fail(err); renderDetail(); });
     });
     return sel;
+  }
+
+  // ---------- 全部回饋 ----------
+
+  /** 只有回覆份數變了才重畫，看到一半不會因為自動更新被捲回頂端 */
+  function renderFeedback(force) {
+    var d = S.detail;
+    var key = d.loading ? 'loading' : d.responses.length;
+    if (!force && S.dom.fbKey === key) return;
+    S.dom.fbKey = key;
+    var c = d.course;
+    var list = d.responses;
+    var tab = S.fbTab || 'summary';
+    function tabBtn(id, label) {
+      return h('button', { type: 'button', role: 'tab', class: 'tab' + (tab === id ? ' on' : ''), 'aria-selected': String(tab === id), text: label,
+        onclick: function () { S.fbTab = id; renderFeedback(true); } });
+    }
+    fill(S.dom.fb, h('div', { class: 'card', style: 'margin-top:20px' },
+      h('div', { class: 'card-head' },
+        h('div', { class: 'row' }, h('h2', { text: '全部回饋（' + list.length + ' 份）' }),
+          c.status === 'open' ? h('span', { class: 'note', text: '每 15 秒自動更新' }) : null),
+        h('div', { class: 'row' },
+          h('button', { type: 'button', class: 'btn btn-sm', text: '匯出回饋 CSV', disabled: !list.length, onclick: function () { exportResponses(d); } }),
+          h('a', { class: 'btn btn-sm', href: S.data.responsesUrl, target: '_blank', rel: 'noopener', text: '在試算表中開啟' }))),
+      d.loading ? h('div', { class: 'note', text: '載入中…' }) :
+        !list.length ? h('div', { class: 'note', text: '還沒有回饋。' }) : [
+          h('div', { class: 'tabs', role: 'tablist' }, tabBtn('summary', '每題統計'), tabBtn('all', '所有回饋')),
+          tab === 'summary' ? h('div', { class: 'fb-grid' }, d.questions.map(function (q, i) { return questionSummary(q, i, list); }))
+            : responsesTable(d.questions, list)
+        ]));
+  }
+
+  function answerText(v) {
+    if (v === undefined || v === null || v === '') return '';
+    return Array.isArray(v) ? v.join('、') : String(v);
+  }
+
+  function questionSummary(q, i, list) {
+    var answered = list.filter(function (r) { var v = r.answers[q.id]; return v !== undefined && v !== '' && !(Array.isArray(v) && !v.length); });
+    var n = answered.length;
+    var head = h('div', { class: 'fb-q-head' },
+      h('span', { class: 'q-no', text: String(i + 1) }),
+      h('div', null, h('div', { class: 'q-text', text: q.label }),
+        h('div', { class: 'note', text: TYPE_NAMES[q.type] + '・' + n + ' 人回答' + (n < list.length ? '（' + (list.length - n) + ' 人沒答）' : '') })));
+    var body;
+    if (q.type === 'text') {
+      body = n ? h('ul', { class: 'fb-texts' }, answered.map(function (r) {
+        return h('li', null, h('div', { text: r.answers[q.id] }), h('div', { class: 'note num', text: r.submitted_at.slice(5, 16) }));
+      })) : h('div', { class: 'note', text: '還沒有人回答' });
+    } else {
+      var opts = q.type === 'rating' ? ['5', '4', '3', '2', '1'] : q.type === 'yesno' ? ['是', '否'] : q.options;
+      var counts = opts.map(function (o) {
+        return answered.filter(function (r) {
+          var v = r.answers[q.id];
+          return Array.isArray(v) ? v.indexOf(o) >= 0 : String(v) === o;
+        }).length;
+      });
+      var top = Math.max.apply(null, counts.concat(1));
+      var avg = null;
+      if (q.type === 'rating' && n) {
+        avg = (answered.reduce(function (s, r) { return s + Number(r.answers[q.id]); }, 0) / n).toFixed(1);
+      }
+      body = [
+        avg !== null ? h('div', { class: 'fb-avg' }, h('b', { class: 'num', text: avg }), h('span', { class: 'note', text: '/ 5 平均' })) : null,
+        h('div', { class: 'bars' }, opts.map(function (o, j) {
+          var pct = n ? Math.round(counts[j] / n * 100) : 0;
+          var label = q.type === 'rating' ? o + ' 分' + (o === '5' && q.options && q.options[1] ? '（' + q.options[1] + '）' : o === '1' && q.options && q.options[0] ? '（' + q.options[0] + '）' : '') : o;
+          return h('div', { class: 'bar-row', title: label + '：' + counts[j] + ' 人（' + pct + '%）' },
+            h('span', { class: 'bar-label', text: label }),
+            h('span', { class: 'bar-track' }, h('i', { style: 'width:' + (counts[j] / top * 100) + '%' })),
+            h('span', { class: 'bar-val num', text: counts[j] + ' 人・' + pct + '%' }));
+        })),
+        q.type === 'multi' ? h('div', { class: 'note', text: '可複選，比例是「選這一項的人 ÷ 回答這題的人」，加總會超過 100%。' }) : null
+      ];
+    }
+    return h('div', { class: 'fb-q' + (q.type === 'text' ? ' wide' : '') }, head, body);
+  }
+
+  function responsesTable(questions, list) {
+    return h('div', { class: 'table-wrap fb-table' }, h('table', null,
+      h('thead', null, h('tr', null, h('th', { text: '#' }), h('th', { text: '時間' }),
+        questions.map(function (q, i) { return h('th', { class: 'q', title: q.label, text: 'Q' + (i + 1) + ' ' + q.label }); }))),
+      h('tbody', null, list.map(function (row, k) {
+        return h('tr', null,
+          h('td', { class: 'num', text: String(list.length - k) }),
+          h('td', { class: 'num', text: row.submitted_at.slice(5, 16) }),
+          questions.map(function (q) {
+            var t = answerText(row.answers[q.id]);
+            return h('td', { class: q.type === 'rating' ? 'n' : q.type === 'text' ? 't' : '', text: t || '—' });
+          }));
+      }))));
+  }
+
+  /** 這堂課的匿名回饋：一題一欄，沒有姓名與 Email（回覆本來就沒有存） */
+  function exportResponses(d) {
+    var c = d.course;
+    var head = ['#', '送出時間', '問卷版本'].concat(d.questions.map(function (q, i) { return 'Q' + (i + 1) + ' ' + q.label; }));
+    var rows = d.responses.slice().reverse().map(function (r, k) {
+      return [k + 1, r.submitted_at, 'v' + c.template_version].concat(d.questions.map(function (q) { return answerText(r.answers[q.id]); }));
+    });
+    var csv = '﻿' + [head].concat(rows).map(function (r) { return r.map(csvCell).join(','); }).join('\r\n');
+    var href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    download('回饋_' + c.date + '_' + fileSafe(c.title) + '.csv', href);
+    setTimeout(function () { URL.revokeObjectURL(href); }, 4000);
+    toast('已匯出 ' + d.responses.length + ' 份匿名回饋');
   }
 
   // ---------- 課堂簡報 ----------

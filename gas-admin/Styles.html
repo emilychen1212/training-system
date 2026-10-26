@@ -324,6 +324,26 @@ tr.pick.on td { background: var(--blue-soft); }
 td.strong { font-weight: 700; }
 td.num { font-family: var(--num); }
 
+
+/* ---------- 全部回饋 ---------- */
+.fb-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.fb-q { border: 1px solid var(--line); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.fb-q.wide { grid-column: 1 / -1; }
+.fb-q-head { display: flex; gap: 12px; align-items: flex-start; }
+.fb-avg { display: flex; align-items: baseline; gap: 6px; }
+.fb-avg b { font-size: 30px; font-weight: 800; color: var(--blue); }
+.bars { display: flex; flex-direction: column; gap: 8px; }
+.bar-row { display: grid; grid-template-columns: minmax(70px, 34%) minmax(0, 1fr) 92px; gap: 10px; align-items: center; font-size: 14px; }
+.bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { height: 14px; background: var(--ground); border-radius: 4px; overflow: hidden; }
+.bar-track i { display: block; height: 100%; background: var(--blue); border-radius: 0 4px 4px 0; min-width: 0; }
+.bar-val { text-align: right; color: var(--muted); white-space: nowrap; }
+.fb-texts { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+.fb-texts li { background: var(--ground); border-radius: 12px; padding: 10px 14px; white-space: pre-wrap; word-break: break-word; display: flex; justify-content: space-between; gap: 12px; }
+.fb-texts li .note { flex: none; }
+.fb-table { max-height: 560px; overflow: auto; }
+.fb-table thead th { position: sticky; top: 0; background: #fff; z-index: 1; }
+
 /* ---------- 平板以下：側欄收合到上方 ---------- */
 @media (max-width: 900px) {
   .app { grid-template-columns: 1fr; }
@@ -338,7 +358,7 @@ td.num { font-family: var(--num); }
   .course-nums { justify-content: flex-start; text-align: left; }
   .raffle-in { padding: 28px 20px; }
   .raffle h1 { font-size: 40px; }
-  .cal-layout, .tpl-layout, .chart-row { grid-template-columns: 1fr; }
+  .cal-layout, .tpl-layout, .chart-row, .fb-grid { grid-template-columns: 1fr; }
   .stats-5 { grid-template-columns: repeat(2, 1fr); }
   .tpl-side { position: static; }
   .day { min-height: 72px; padding: 4px; }

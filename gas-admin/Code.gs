@@ -78,13 +78,14 @@ function admin_getCourse(courseId) {
   var c = findCourse_(courseId);
   var questions = findTemplate_(c.template_version).questions;
   var responses = table_('responses').rows.filter(function (r) { return r.course_id === c.course_id; });
-  var latest = responses.slice(-20).reverse().map(function (r) {
+  // 這堂課的全部回覆（每堂上限 500 份），新的在前；回覆本來就是匿名的
+  var all = responses.slice().reverse().map(function (r) {
     return { submitted_at: r.submitted_at, answers: parseJson_(r.answers_json, {}) };
   });
   return {
     course: c,
     questions: questions,
-    latest: latest,
+    responses: all,
     raffle: raffleSummary_(c)
   };
 }
