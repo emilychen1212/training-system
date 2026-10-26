@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>簡報總表｜飛資得講習站</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖥️</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Outfit:wght@600;800&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#0E2A4C;--blue:#1C4C84;--soft:#E6EEF9;--ground:#F5F7FB;--surface:#fff;--line:#D9E2EF;--muted:#5A6B85;--orange:#F28A1E;--orange-ink:#B4560A;}
+*{box-sizing:border-box;}
+body{margin:0;font-family:"Noto Sans TC","PingFang TC",sans-serif;background:var(--ground);color:var(--navy);padding:32px 20px 60px;}
+.wrap{max-width:860px;margin:0 auto;}
+.top{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:6px;}
+h1{font-size:28px;font-weight:900;margin:0;}
+.eyebrow{font-family:"Outfit",sans-serif;font-weight:700;font-size:12px;letter-spacing:.2em;color:var(--orange-ink);text-transform:uppercase;margin-bottom:4px;}
+.sub{color:var(--muted);font-size:13px;margin:2px 0 22px;}
+.cards{display:grid;gap:12px;}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px 18px;}
+.card h2{font-size:17px;font-weight:900;margin:0 0 4px;}
+.meta{font-size:12.5px;color:var(--muted);margin-bottom:4px;}
+.meta b{font-family:"Outfit",sans-serif;color:var(--orange-ink);font-weight:700;}
+.note{font-size:13px;color:var(--navy);background:var(--soft);border-radius:10px;padding:7px 11px;margin:8px 0 12px;}
+.row{display:flex;gap:8px;flex-wrap:wrap;}
+.btn{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;border-radius:11px;padding:8px 14px;cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--navy);text-decoration:none;}
+.btn:hover{background:var(--soft);}
+.btn.primary{background:var(--blue);color:#fff;border-color:var(--blue);}
+.btn.primary:hover{background:var(--navy);}
+.empty{background:var(--surface);border:1px dashed var(--line);border-radius:16px;padding:40px 20px;text-align:center;color:var(--muted);}
+.count{font-family:"Outfit",sans-serif;font-weight:800;color:var(--blue);background:var(--soft);border-radius:999px;padding:2px 12px;font-size:13px;}
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:9px 16px;border-radius:999px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;}
+.toast.on{opacity:1;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">FLYSHEET · TRAINING DECKS</div>
+  <div class="top"><h1>課堂簡報總表</h1><span class="count" id="count">—</span></div>
+  <div class="sub">這裡是放在 <code>training-system/decks/</code> 的互動網頁簡報。要嵌到後台「課堂簡報 → 互動網頁簡報」，按「複製嵌入網址」貼上即可。</div>
+  <div id="list" class="cards"></div>
+</div>
+<div class="toast" id="toast"></div>
+<script>
+var BASE = location.href.replace(/index\.html(\?.*)?$/,'').replace(/[^/]*$/,'');
+if(!/\/$/.test(BASE)) BASE += '/';
+function toast(t){var el=document.getElementById('toast');el.textContent=t;el.classList.add('on');setTimeout(function(){el.classList.remove('on');},1600);}
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+fetch('decks.json?t='+Date.now()).then(function(r){return r.json();}).then(function(d){
+  var decks=(d&&d.decks)||[];
+  document.getElementById('count').textContent=decks.length+' 份';
+  var list=document.getElementById('list');
+  if(!decks.length){ list.outerHTML='<div class="empty">還沒有簡報 🗂️<br><span style="font-size:12px;">把下載好的 HTML 交給 Claude，放上來後就會出現在這裡。</span></div>'; return; }
+  decks.sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''));});
+  list.innerHTML=decks.map(function(x){
+    var url=BASE+x.file;
+    return '<div class="card"><h2>'+esc(x.title||x.file)+'</h2>'+
+      '<div class="meta">'+(x.course?esc(x.course)+' · ':'')+(x.date?'<b>'+esc(x.date)+'</b>':'')+'</div>'+
+      (x.note?'<div class="note">'+esc(x.note)+'</div>':'')+
+      '<div class="row"><a class="btn primary" href="'+esc(x.file)+'" target="_blank">▶ 開啟簡報</a>'+
+      '<button class="btn" data-url="'+esc(url)+'">⧉ 複製嵌入網址</button></div></div>';
+  }).join('');
+  list.querySelectorAll('[data-url]').forEach(function(b){
+    b.addEventListener('click',function(){
+      var u=b.getAttribute('data-url');
+      if(navigator.clipboard){navigator.clipboard.writeText(u).then(function(){toast('已複製：'+u);},function(){prompt('複製這個網址：',u);});}
+      else prompt('複製這個網址：',u);
+    });
+  });
+}).catch(function(){document.getElementById('list').innerHTML='<div class="empty">讀取簡報清單失敗，請重新整理。</div>';});
+</script>
+</body>
+</html>
