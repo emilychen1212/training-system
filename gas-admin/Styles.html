@@ -300,6 +300,30 @@ dialog.wide { width: min(760px, calc(100vw - 32px)); }
 .pv-text { border: 1px solid var(--line); border-radius: 12px; padding: 10px; color: var(--muted); background: var(--ground); min-height: 64px; font-size: 14px; }
 .pv-submit { background: var(--blue); color: #fff; border-radius: 14px; text-align: center; font-weight: 900; padding: 13px; box-shadow: 0 5px 0 var(--navy); margin-bottom: 5px; }
 
+
+/* ---------- 成效統計 ---------- */
+.filters { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 20px; }
+.filter { min-width: 160px; }
+.stats-5 { grid-template-columns: repeat(5, 1fr); }
+.chart-row { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.chart { position: relative; margin-top: 12px; }
+.chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .axis { fill: var(--muted); font-size: 12px; font-family: var(--num); }
+.chart .bar { fill: var(--blue); }
+.chart .line { fill: none; stroke: var(--blue); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .dot { fill: var(--blue); stroke: #fff; stroke-width: 2; }
+.chart .cross { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.chart .hit { fill: transparent; cursor: default; }
+.chart .hit:hover { fill: rgba(30, 95, 180, .06); }
+.tip { position: absolute; transform: translate(-50%, -100%); background: var(--navy); color: #fff; font-size: 13px; font-weight: 700;
+  padding: 6px 10px; border-radius: 8px; white-space: nowrap; pointer-events: none; }
+tr.pick { cursor: pointer; }
+tr.pick:hover td, tr.pick:focus td { background: var(--ground); }
+tr.pick.on td { background: var(--blue-soft); }
+td.strong { font-weight: 700; }
+td.num { font-family: var(--num); }
+
 /* ---------- 平板以下：側欄收合到上方 ---------- */
 @media (max-width: 900px) {
   .app { grid-template-columns: 1fr; }
@@ -314,7 +338,8 @@ dialog.wide { width: min(760px, calc(100vw - 32px)); }
   .course-nums { justify-content: flex-start; text-align: left; }
   .raffle-in { padding: 28px 20px; }
   .raffle h1 { font-size: 40px; }
-  .cal-layout, .tpl-layout { grid-template-columns: 1fr; }
+  .cal-layout, .tpl-layout, .chart-row { grid-template-columns: 1fr; }
+  .stats-5 { grid-template-columns: repeat(2, 1fr); }
   .tpl-side { position: static; }
   .day { min-height: 72px; padding: 4px; }
   .cal-chip { font-size: 11px; padding: 2px 4px; }

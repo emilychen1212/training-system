@@ -253,12 +253,16 @@ function listCourses_() {
   var counts = courseCounts_();
   return table_('courses').rows.map(function (r) {
     var c = publicCourse_(r);
-    var n = counts[r.course_id] || { responses: 0, entries: 0, winners: 0, q1sum: 0, q1n: 0 };
+    var n = counts[r.course_id] || { responses: 0, entries: 0, winners: 0, q1sum: 0, q1n: 0, useYes: 0, useN: 0 };
     c.response_count = n.responses;
     c.entry_count = r.raffle_cleared_at ? Number(r.raffle_count_final) || 0 : n.entries;
     c.winner_count = r.raffle_cleared_at ? Number(r.winner_count_final) || 0 : n.winners;
     c.live_entries = n.entries;
     c.avg_q1 = n.q1n ? Math.round(n.q1sum / n.q1n * 10) / 10 : null;
+    c.q1_sum = n.q1sum;
+    c.q1_n = n.q1n;
+    c.use_yes = n.useYes;
+    c.use_n = n.useN;
     return c;
   }).sort(function (a, b) {
     return (b.date + b.start_time).localeCompare(a.date + a.start_time);
@@ -289,13 +293,16 @@ function publicCourse_(r) {
 function courseCounts_() {
   var out = {};
   function get(id) {
-    return out[id] || (out[id] = { responses: 0, entries: 0, winners: 0, q1sum: 0, q1n: 0 });
+    return out[id] || (out[id] = { responses: 0, entries: 0, winners: 0, q1sum: 0, q1n: 0, useYes: 0, useN: 0 });
   }
   table_('responses').rows.forEach(function (r) {
     var n = get(r.course_id);
     n.responses++;
-    var q1 = Number(parseJson_(r.answers_json, {}).q1);
+    var a = parseJson_(r.answers_json, {});
+    var q1 = Number(a.q1);
     if (q1 >= 1 && q1 <= 5) { n.q1sum += q1; n.q1n++; }
+    // 使用意願固定取 q3（會／可能會／不會），只算有回答的人
+    if (typeof a.q3 === 'string' && a.q3) { n.useN++; if (a.q3 === '會') n.useYes++; }
   });
   table_('raffle_entries').rows.forEach(function (r) {
     var n = get(r.course_id);

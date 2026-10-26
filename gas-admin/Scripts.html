@@ -295,7 +295,8 @@
   function scoreOf(courses) {
     var q1sum = 0, q1n = 0, resp = 0, att = 0;
     courses.forEach(function (c) {
-      if (c.avg_q1 !== null) { q1sum += c.avg_q1 * c.response_count; q1n += c.response_count; }
+      q1sum += c.q1_sum || 0;
+      q1n += c.q1_n || 0;
       if (c.attendees) { resp += c.response_count; att += c.attendees; }
     });
     return { avg: q1n ? (q1sum / q1n).toFixed(1) : null, rate: att ? Math.round(resp / att * 100) : null };
@@ -773,6 +774,294 @@
     openPanel('手機預覽', [phone]);
   }
 
+  // ---------- 成效統計 ----------
+
+  function showStats() {
+    S.view = 'stats';
+    raffleEl.hidden = true;
+    setNav('stats');
+    if (!S.sf) S.sf = { year: String(new Date().getFullYear()), product: '', org: '' };
+    renderStats();
+    window.scrollTo(0, 0);
+  }
+
+  /** 一組課程的成效：場次不含草稿；觸及人數＝實到人數，沒填實到的課用回饋份數 */
+  function aggregate(list) {
+    var a = { sessions: list.length, reach: 0, responses: 0, rateResp: 0, rateAtt: 0, q1sum: 0, q1n: 0, useYes: 0, useN: 0, entries: 0 };
+    list.forEach(function (c) {
+      a.reach += c.attendees ? c.attendees : c.response_count;
+      a.responses += c.response_count;
+      if (c.attendees) { a.rateResp += c.response_count; a.rateAtt += c.attendees; }
+      a.q1sum += c.q1_sum || 0;
+      a.q1n += c.q1_n || 0;
+      a.useYes += c.use_yes || 0;
+      a.useN += c.use_n || 0;
+      a.entries += c.entry_count || 0;
+    });
+    a.avg = a.q1n ? Math.round(a.q1sum / a.q1n * 10) / 10 : null;
+    a.use = a.useN ? Math.round(a.useYes / a.useN * 100) : null;
+    a.rate = a.rateAtt ? Math.round(a.rateResp / a.rateAtt * 100) : null;
+    return a;
+  }
+
+  function statsBase() {
+    var f = S.sf;
+    return S.data.courses.filter(function (c) {
+      return c.status !== 'draft' && (!f.year || c.date.slice(0, 4) === f.year) && (!f.org || c.org_type === f.org);
+    });
+  }
+  function statsFiltered() {
+    var p = S.sf.product;
+    return statsBase().filter(function (c) { return !p || c.product_tags.indexOf(p) >= 0; });
+  }
+
+  function renderStats() {
+    var f = S.sf;
+    var held = S.data.courses.filter(function (c) { return c.status !== 'draft'; });
+    var years = [String(new Date().getFullYear())];
+    held.forEach(function (c) { var y = c.date.slice(0, 4); if (years.indexOf(y) < 0) years.push(y); });
+    years.sort().reverse();
+    var products = S.data.productTags.slice();
+    held.forEach(function (c) { c.product_tags.forEach(function (t) { if (products.indexOf(t) < 0) products.push(t); }); });
+
+    var list = statsFiltered().sort(function (a, b) { return (b.date + b.start_time).localeCompare(a.date + a.start_time); });
+    var all = aggregate(list);
+
+    function filter(label, key, options) {
+      var sel = h('select', { class: 'input', 'aria-label': label }, options.map(function (o) {
+        return h('option', { value: o[0], selected: f[key] === o[0], text: o[1] });
+      }));
+      sel.addEventListener('change', function () { f[key] = sel.value; renderStats(); });
+      return h('label', { class: 'field filter' }, h('span', { text: label }), sel);
+    }
+
+    // 圖表：選了年度看 12 個月，選「全部年度」看每一年
+    var buckets = f.year
+      ? [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(function (m) { return { label: m + ' 月', key: f.year + '-' + pad2(m) }; })
+      : years.slice().reverse().map(function (y) { return { label: y, key: y }; });
+    var series = buckets.map(function (b) {
+      var a = aggregate(list.filter(function (c) { return c.date.indexOf(b.key) === 0; }));
+      return { label: b.label, sessions: a.sessions, avg: a.avg, n: a.q1n };
+    });
+
+    fill(main,
+      h('div', { class: 'page-head' },
+        h('div', null, h('div', { class: 'eyebrow', text: 'IMPACT' }), h('h1', { text: '成效統計' })),
+        h('button', { type: 'button', class: 'btn', text: '匯出統計 CSV', disabled: !list.length, onclick: function () { exportStats(list); } })),
+      reminderBanner(),
+      h('div', { class: 'filters' },
+        filter('年度', 'year', [['', '全部年度']].concat(years.map(function (y) { return [y, y + ' 年']; }))),
+        filter('產品', 'product', [['', '全部產品']].concat(products.map(function (t) { return [t, t]; }))),
+        filter('機構類型', 'org', [['', '全部類型']].concat(S.data.orgTypes.map(function (t) { return [t, t]; }))),
+        f.year || f.product || f.org ? h('button', { type: 'button', class: 'btn-text', text: '清除篩選', onclick: function () {
+          S.sf = { year: '', product: '', org: '' };
+          renderStats();
+        } }) : null),
+      h('div', { class: 'stats stats-5' },
+        stat('場次', all.sessions, '場', true),
+        stat('觸及人數', all.reach, '人'),
+        stat('平均滿意度', all.avg === null ? '—' : all.avg.toFixed(1), all.avg === null ? '' : '/ 5'),
+        stat('會實際使用', all.use === null ? '—' : all.use, all.use === null ? '' : '%'),
+        stat('問卷回收率', all.rate === null ? '—' : all.rate, all.rate === null ? '' : '%')),
+      list.length ? [
+        h('div', { class: 'chart-row' },
+          h('div', { class: 'card' },
+            h('h2', { text: (f.year ? '每月' : '每年') + '場次' }),
+            barChart(series.map(function (s) { return s.label; }), series.map(function (s) { return s.sessions; }),
+              function (i) { return series[i].label + '｜' + series[i].sessions + ' 場'; })),
+          h('div', { class: 'card' },
+            h('h2', { text: '滿意度趨勢' }),
+            lineChart(series.map(function (s) { return s.label; }), series.map(function (s) { return s.avg; }),
+              function (i) { return series[i].label + '｜平均 ' + series[i].avg.toFixed(1) + ' 分（' + series[i].n + ' 份）'; }))),
+        groupTable('依產品', products, function (t) {
+          return statsBase().filter(function (c) { return c.product_tags.indexOf(t) >= 0; });
+        }, function (t) { f.product = f.product === t ? '' : t; renderStats(); }, f.product),
+        groupTable('依機構類型', S.data.orgTypes, function (t) {
+          return statsFiltered().filter(function (c) { return c.org_type === t; });
+        }, function (t) { f.org = f.org === t ? '' : t; renderStats(); }, f.org),
+        courseTable(list)
+      ] : h('div', { class: 'empty' }, '這個條件下還沒有已開課的課程。'),
+      h('div', { class: 'note', style: 'margin-top:16px', text:
+        '場次不含草稿。觸及人數＝實到人數，沒填實到的課以回饋份數計。平均滿意度取 Q「整體滿意度」（q1），會實際使用取 q3 回答「會」的比例，兩者都跨問卷版本合併。一堂課有多個產品時，每個產品各算一次。' }));
+  }
+
+  function fmtAvg(a) { return a.avg === null ? '—' : a.avg.toFixed(1); }
+  function fmtPct(v) { return v === null ? '—' : v + '%'; }
+
+  function groupTable(title, keys, pick, onPick, active) {
+    var rows = keys.map(function (k) { return { key: k, a: aggregate(pick(k)) }; })
+      .filter(function (r) { return r.a.sessions > 0; })
+      .sort(function (x, y) { return y.a.sessions - x.a.sessions || y.a.reach - x.a.reach; });
+    return h('div', { class: 'card', style: 'margin-top:20px' },
+      h('div', { class: 'card-head' }, h('h2', { text: title }), h('span', { class: 'note', text: '點一列可以篩選' })),
+      rows.length ? h('div', { class: 'table-wrap' }, h('table', null,
+        h('thead', null, h('tr', null, ['', '場次', '觸及人數', '回饋份數', '平均滿意度', '會實際使用', '回收率'].map(function (t) {
+          return h('th', { text: t });
+        }))),
+        h('tbody', null, rows.map(function (r) {
+          return h('tr', { class: 'pick' + (active === r.key ? ' on' : ''), tabindex: '0', onclick: function () { onPick(r.key); },
+            onkeydown: function (e) { if (e.key === 'Enter') onPick(r.key); } },
+            h('td', { class: 'strong', text: r.key }),
+            h('td', { class: 'num', text: String(r.a.sessions) }),
+            h('td', { class: 'num', text: String(r.a.reach) }),
+            h('td', { class: 'num', text: String(r.a.responses) }),
+            h('td', { class: 'num', text: fmtAvg(r.a) }),
+            h('td', { class: 'num', text: fmtPct(r.a.use) }),
+            h('td', { class: 'num', text: fmtPct(r.a.rate) }));
+        })))) : h('div', { class: 'note', text: '沒有資料' }));
+  }
+
+  function courseTable(list) {
+    return h('div', { class: 'card', style: 'margin-top:20px' },
+      h('div', { class: 'card-head' }, h('h2', { text: '課程明細（' + list.length + ' 場）' })),
+      h('div', { class: 'table-wrap' }, h('table', null,
+        h('thead', null, h('tr', null, ['日期', '課程', '機構', '產品', '實到', '回饋', '滿意度', '會使用'].map(function (t) {
+          return h('th', { text: t });
+        }))),
+        h('tbody', null, list.map(function (c) {
+          var a = aggregate([c]);
+          return h('tr', { class: 'pick', tabindex: '0', onclick: function () { openDetail(c.course_id); },
+            onkeydown: function (e) { if (e.key === 'Enter') openDetail(c.course_id); } },
+            h('td', { class: 'num', text: c.date.slice(5).replace('-', '/') }),
+            h('td', { class: 'strong', text: c.title }),
+            h('td', { text: [c.org_name, c.org_type].filter(Boolean).join('・') }),
+            h('td', { text: c.product_tags.join('、') || '—' }),
+            h('td', { class: 'num', text: c.attendees === '' ? '—' : String(c.attendees) }),
+            h('td', { class: 'num', text: String(c.response_count) }),
+            h('td', { class: 'num', text: fmtAvg(a) }),
+            h('td', { class: 'num', text: fmtPct(a.use) }));
+        })))));
+  }
+
+  /** 統計 CSV：只有課程層級的數字，沒有任何姓名、Email 或問卷原始答案 */
+  function exportStats(list) {
+    var f = S.sf;
+    var head = ['日期', '時間', '課程名稱', '機構', '機構類型', '產品', '狀態', '實到人數', '回饋份數', '回收率', '平均滿意度', '會實際使用比例', '抽獎登記人數'];
+    var rows = list.map(function (c) {
+      var a = aggregate([c]);
+      return [c.date, c.start_time, c.title, c.org_name, c.org_type, c.product_tags.join('、'), STATUS[c.status],
+        c.attendees, c.response_count, a.rate === null ? '' : a.rate + '%', a.avg === null ? '' : a.avg.toFixed(1),
+        a.use === null ? '' : a.use + '%', c.entry_count];
+    });
+    var total = aggregate(list);
+    rows.push([]);
+    rows.push(['合計', '', list.length + ' 場', '', '', '', '', '', total.responses, total.rate === null ? '' : total.rate + '%',
+      total.avg === null ? '' : total.avg.toFixed(1), total.use === null ? '' : total.use + '%', total.entries]);
+    var csv = '﻿' + [head].concat(rows).map(function (r) { return r.map(csvCell).join(','); }).join('\r\n');
+    var name = '成效統計_' + [f.year || '全部年度', f.product, f.org].filter(Boolean).join('_') + '.csv';
+    var href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    download(name, href);
+    setTimeout(function () { URL.revokeObjectURL(href); }, 4000);
+    toast('已匯出統計（不含任何姓名與 Email）');
+  }
+
+  function csvCell(v) {
+    var s = String(v === null || v === undefined ? '' : v);
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+    return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+
+  // ---------- 圖表（單一序列：不放圖例，標題就是名稱；滑過顯示數值） ----------
+
+  var SVGNS = 'http://www.w3.org/2000/svg';
+  function svg(tag, attrs) {
+    var el = document.createElementNS(SVGNS, tag);
+    Object.keys(attrs || {}).forEach(function (k) { el.setAttribute(k, attrs[k]); });
+    return el;
+  }
+
+  function chartFrame(labels, yTicks, yMax, yMin, label) {
+    var W = 600, H = 230, L = 34, R = 10, T = 12, B = 30;
+    var box = h('div', { class: 'chart' });
+    var root = svg('svg', { viewBox: '0 0 ' + W + ' ' + H, role: 'img', 'aria-label': label });
+    var pw = W - L - R, ph = H - T - B;
+    var y = function (v) { return T + ph - (v - yMin) / (yMax - yMin) * ph; };
+    yTicks.forEach(function (t) {
+      root.appendChild(svg('line', { x1: L, x2: W - R, y1: y(t), y2: y(t), class: 'grid' }));
+      var tx = svg('text', { x: L - 8, y: y(t) + 4, class: 'axis', 'text-anchor': 'end' });
+      tx.textContent = String(t);
+      root.appendChild(tx);
+    });
+    var band = pw / labels.length;
+    labels.forEach(function (l, i) {
+      if (labels.length > 12 && i % 2) return;
+      var tx = svg('text', { x: L + band * (i + .5), y: H - 8, class: 'axis', 'text-anchor': 'middle' });
+      tx.textContent = l;
+      root.appendChild(tx);
+    });
+    var tip = h('div', { class: 'tip', role: 'status' });
+    tip.hidden = true;
+    box.appendChild(root);
+    box.appendChild(tip);
+    return { box: box, root: root, y: y, band: band, L: L, T: T, ph: ph, W: W, H: H, tip: tip };
+  }
+
+  function hover(fr, i, text, x, yPx) {
+    var rect = fr.root.getBoundingClientRect();
+    var sx = rect.width / fr.W, sy = rect.height / fr.H;
+    fr.tip.textContent = text;
+    fr.tip.hidden = false;
+    fr.tip.style.left = Math.min(Math.max(x * sx, 60), rect.width - 60) + 'px';
+    fr.tip.style.top = (yPx * sy - 10) + 'px';
+  }
+
+  function niceMax(v) {
+    if (v <= 4) return 4;
+    var step = Math.pow(10, Math.floor(Math.log10(v)));
+    return Math.ceil(v / step) * step;
+  }
+
+  function barChart(labels, values, tipText) {
+    var max = niceMax(Math.max.apply(null, values));
+    var ticks = [0, max / 2, max].map(function (t) { return Math.round(t * 10) / 10; });
+    var fr = chartFrame(labels, ticks, max, 0, '場次長條圖');
+    var bw = Math.min(28, fr.band * .56);
+    values.forEach(function (v, i) {
+      var cx = fr.L + fr.band * (i + .5);
+      if (v > 0) {
+        var top = fr.y(v), base = fr.y(0), r = Math.min(4, (base - top) / 2), x0 = cx - bw / 2;
+        // 只有頂端圓角，底部貼齊基準線
+        fr.root.appendChild(svg('path', { class: 'bar', d: 'M' + x0 + ',' + base + 'V' + (top + r) + 'Q' + x0 + ',' + top + ' ' + (x0 + r) + ',' + top +
+          'H' + (x0 + bw - r) + 'Q' + (x0 + bw) + ',' + top + ' ' + (x0 + bw) + ',' + (top + r) + 'V' + base + 'Z' }));
+      }
+      var hit = svg('rect', { x: cx - fr.band / 2, y: fr.T, width: fr.band, height: fr.ph, class: 'hit' });
+      hit.addEventListener('mouseenter', function () { hover(fr, i, tipText(i), cx, fr.y(Math.max(v, 0))); });
+      hit.addEventListener('mouseleave', function () { fr.tip.hidden = true; });
+      fr.root.appendChild(hit);
+    });
+    return fr.box;
+  }
+
+  function lineChart(labels, values, tipText) {
+    var fr = chartFrame(labels, [1, 2, 3, 4, 5], 5, 1, '滿意度折線圖');
+    var pts = values.map(function (v, i) { return v === null ? null : [fr.L + fr.band * (i + .5), fr.y(v)]; });
+    // 沒開課的月份沒有點，線直接連到下一個有資料的月份
+    var d = pts.filter(Boolean).map(function (p, i) { return (i ? 'L' : 'M') + p[0] + ',' + p[1]; }).join('');
+    if (d) fr.root.appendChild(svg('path', { d: d, class: 'line' }));
+    var cross = svg('line', { y1: fr.T, y2: fr.T + fr.ph, class: 'cross', visibility: 'hidden' });
+    fr.root.appendChild(cross);
+    pts.forEach(function (p) { if (p) fr.root.appendChild(svg('circle', { cx: p[0], cy: p[1], r: 4, class: 'dot' })); });
+    if (!pts.some(Boolean)) {
+      var tx = svg('text', { x: fr.W / 2, y: fr.H / 2, class: 'axis', 'text-anchor': 'middle' });
+      tx.textContent = '還沒有滿意度資料';
+      fr.root.appendChild(tx);
+    }
+    labels.forEach(function (l, i) {
+      var cx = fr.L + fr.band * (i + .5);
+      var hit = svg('rect', { x: cx - fr.band / 2, y: fr.T, width: fr.band, height: fr.ph, class: 'hit' });
+      hit.addEventListener('mouseenter', function () {
+        if (!pts[i]) { fr.tip.hidden = true; cross.setAttribute('visibility', 'hidden'); return; }
+        cross.setAttribute('x1', cx);
+        cross.setAttribute('x2', cx);
+        cross.setAttribute('visibility', 'visible');
+        hover(fr, i, tipText(i), cx, pts[i][1]);
+      });
+      hit.addEventListener('mouseleave', function () { fr.tip.hidden = true; cross.setAttribute('visibility', 'hidden'); });
+      fr.root.appendChild(hit);
+    });
+    return fr.box;
+  }
+
   // ---------- 課程列表 ----------
 
   function renderList() {
@@ -783,7 +1072,8 @@
     var thisYear = courses.filter(function (c) { return c.date.slice(0, 4) === String(today.getFullYear()); }).length;
     var q1sum = 0, q1n = 0, resp = 0, att = 0;
     courses.forEach(function (c) {
-      if (c.avg_q1 !== null) { q1sum += c.avg_q1 * c.response_count; q1n += c.response_count; }
+      q1sum += c.q1_sum || 0;
+      q1n += c.q1_n || 0;
       if (c.attendees) { resp += c.response_count; att += c.attendees; }
     });
 
@@ -1361,6 +1651,9 @@
   document.querySelector('[data-nav="list"]').addEventListener('click', function () {
     leaveGuard(function () { S.home = 'list'; backHome(); });
   });
+  document.querySelector('[data-nav="stats"]').addEventListener('click', function () {
+    leaveGuard(function () { reload().then(showStats).catch(fail); });
+  });
   document.querySelector('[data-nav="templates"]').addEventListener('click', function () {
     leaveGuard(function () { showTemplates(); });
   });
@@ -1388,6 +1681,7 @@
     if (byCode) return openDetail(byCode.course_id);
     if (boot.page === 'templates') return showTemplates();
     if (boot.page === 'list') return showList();
+    if (boot.page === 'stats') return showStats();
     showCalendar();
   }).catch(function (err) {
     fill(main, h('div', { class: 'card' }, h('h2', { text: '載入失敗' }), h('p', { text: err.message })));

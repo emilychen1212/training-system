@@ -69,6 +69,23 @@ function seed() {
   admin.admin_setStatus(past, 'closed');
   admin.admin_saveCourse({ title: 'Rayyan 系統性文獻回顧篩選', date: '2026-11-05', start_time: '13:30',
     org_name: '○○醫院 教學部', org_type: '醫院', product_tags: ['Rayyan'], prizes: [] });
+  // 過去的課，讓成效統計有東西看
+  [['2026-03-12', 'JoVE 實驗影片入門', '學校', 'JoVE', 30, 24, 4.4],
+    ['2026-05-02', 'UpToDate 臨床決策', '醫院', 'UpToDate', 45, 38, 4.7],
+    ['2026-05-20', 'Ovid 檢索實作', '醫院', 'Ovid', 20, 15, 4.1],
+    ['2026-07-08', 'JoVE 教學應用', '學校', 'JoVE', 25, 20, 4.8],
+    ['2026-09-15', 'Thieme 與 LWW 電子書', '學校', 'Thieme,LWW', 0, 12, 4.5]].forEach(([date, title, org, tags, att, n, avg]) => {
+    const id = admin.admin_saveCourse({ title, date, start_time: '14:00', org_name: '○○' + (org === '學校' ? '大學' : '醫院'),
+      org_type: org, product_tags: tags.split(','), attendees: att || '', prizes: [] }).detail.course.course_id;
+    admin.admin_setStatus(id, 'open');
+    const c = admin.findCourse_(id).survey_code;
+    for (let i = 0; i < n; i++) {
+      const q1 = Math.max(1, Math.min(5, Math.round(avg + (i % 3 - 1) * 0.6)));
+      callPublic(JSON.stringify({ action: 'submitResponse', survey_code: c, elapsed: 30,
+        answers: { q1, q2: 4, q3: i % 4 === 3 ? '可能會' : '會', q4: '學生' } }));
+    }
+    admin.admin_setStatus(id, 'closed');
+  });
   console.log('示範課程代碼：' + code);
   console.log(`  學員問卷 http://localhost:${PORT}/s/?c=${code}`);
   console.log(`  課堂投影 http://localhost:${PORT}/live/?c=${code}`);
