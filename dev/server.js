@@ -32,7 +32,7 @@ function callPublic(body) {
   fresh(pub);
   return pub.doPost({ postData: { contents: body } }).getContent();
 }
-const admin = makeProject(ss, ['Code.gs', 'Templates.gs', 'Setup.gs'].map((f) => path.join(ROOT, 'gas-admin', f)), {
+const admin = makeProject(ss, ['Code.gs', 'Templates.gs', 'Worksheets.gs', 'Setup.gs'].map((f) => path.join(ROOT, 'gas-admin', f)), {
   UrlFetchApp: { fetch: (url, opt) => {
     const text = callPublic(opt.payload);
     return { getContentText: () => text, getResponseCode: () => 200 };
@@ -61,6 +61,20 @@ function seed() {
       answers: { q1: 4 + (i % 2), q2: 3 + (i % 3), q3: ['會', '可能會', '會'][i % 3], q4: roles[i % 5], q5: i % 2 ? '' : '實驗前先看影片很有幫助' } })));
     callPublic(JSON.stringify({ action: 'registerRaffle', survey_code: code, name: p[0], email: p[1], consent: true, raffle_token: r.raffle_token }));
   });
+  // 示範學習單：連到上面這堂課、開放作答，有幾份記名作答（其中一位也登記了問卷抽獎）
+  const ws = fresh(admin).admin_createWorksheet('JoVE 檢索練習').ws_id;
+  admin.admin_saveWorksheet(ws, { title: 'JoVE 檢索練習', intro: '請邊操作 JoVE 邊回答，大約 5 分鐘。', questions: [
+    { type: 'single', label: '你用關鍵字找到幾支相關影片？', required: true, options: ['0 支', '1–3 支', '4 支以上'] },
+    { type: 'text', label: '寫下一支你覺得最有用的影片名稱', required: true, maxLength: 200 }] });
+  admin.admin_linkWorksheet(ws, id);
+  admin.admin_setWorksheetStatus(ws, 'open');
+  const wsCode = admin.table_('worksheets').rows.filter((r) => r.ws_id === ws)[0].code;
+  [['王小明', 'mingwang@gmail.com', '4 支以上'], ['周杰', 'jay@school.edu', '1–3 支'], ['吳宜', 'wuyi@gmail.com', '1–3 支']].forEach(([name, email, n]) => {
+    callPublic(JSON.stringify({ action: 'submitWorksheet', code: wsCode, name, email, consent: true, elapsed: 30,
+      answers: { q2: n, q3: 'PCR 實驗步驟示範' } }));
+  });
+  fresh(admin);
+  console.log(`  學習單 http://localhost:${PORT}/w/?c=${wsCode}`);
   admin.admin_saveCourse({ title: 'VisualDx 臨床影像診斷工具', date: today.slice(0, 8) + '28', start_time: '10:00',
     org_name: '○○護理專科學校', org_type: '學校', product_tags: ['VisualDx'], prizes: [] });
   const past = admin.admin_saveCourse({ title: 'Thieme 電子書講習', date: today.slice(0, 8) + '07', start_time: '10:00',

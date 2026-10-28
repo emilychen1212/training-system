@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="robots" content="noindex">
+  <title>學習單｜飛資得講習站</title>
+  <link rel="preconnect" href="https://script.google.com">
+  <link rel="preconnect" href="https://script.googleusercontent.com">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Outfit:wght@500;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../assets/base.css">
+  <link rel="stylesheet" href="../assets/form.css">
+  <style>
+    .intro { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 16px 18px; white-space: pre-wrap; line-height: 1.7; }
+    .who { display: flex; flex-direction: column; gap: 14px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <div class="eyebrow">WORKSHEET</div>
+      <h1 id="title">學習單</h1>
+      <div class="meta" id="meta"></div>
+      <div class="chips"><span>記名作答</span><span>課堂練習</span></div>
+    </header>
+    <main class="body" id="body" aria-live="polite">
+      <div class="fine">載入中…</div>
+    </main>
+  </div>
+
+  <script src="../config.js"></script>
+  <script src="../assets/app.js"></script>
+  <script src="../assets/form.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var h = TS.h;
+    var code = TS.code().toUpperCase();
+    var body = document.getElementById('body');
+    var ws = null;
+    var form = null;
+    var startedAt = 0;
+    var CONSENT = '我同意提供姓名與 Email，用於本次學習單紀錄與抽獎聯繫，活動結束後 30 天內刪除。';
+    var ERR = {
+      NETWORK: '網路好像不太穩，請再按一次。',
+      NOT_CONFIGURED: '網站還沒設定完成，請告訴講師。',
+      NOT_FOUND: '請確認 QR Code 或網址是否正確。',
+      TOO_FAST: '寫得有點快，請再確認一下題目後送出。',
+      CLOSED: '這份學習單已經停止作答了，謝謝你。',
+      NOT_OPEN: '這份學習單還沒開放作答。',
+      FULL: '這堂課的作答人數已滿，謝謝你。',
+      REQUIRED: '還有必填題沒有填。',
+      INVALID: '有題目的答案不正確，請重新選一次。',
+      TOO_LONG: '文字最多 500 字。',
+      BUSY: '現在作答的人很多，請再按一次。',
+      DUPLICATE: '這個 Email 已經交過這份學習單了，不用再交一次。',
+      INVALID_EMAIL: 'Email 格式好像不對，請再確認一下。',
+      INVALID_NAME: '姓名請填 1～30 個字。',
+      CONSENT_REQUIRED: '請先勾選同意，才能送出。',
+      SERVER_ERROR: '系統出了點問題，請稍後再試。'
+    };
+    function errText(c) { return ERR[c] || ERR.SERVER_ERROR; }
+
+    function state(title, text, extra) {
+      TS.fill(body, h('div', { class: 'state' }, h('h2', { text: title }), text ? h('p', { text: text }) : null), extra || null);
+    }
+    function reloadBtn() {
+      return h('button', { type: 'button', class: 'ghost', text: '重新整理', onclick: function () { location.reload(); } });
+    }
+    /** 同一台裝置交過這份學習單（同一堂課）就記起來，重新整理不會再出現表單 */
+    function doneKey() { return 'ws:' + code + ':' + (ws.course_date || '') + ':' + (ws.course_title || ''); }
+
+    if (!/^W\d{6}$/.test(code)) {
+      state('找不到這份學習單', '請確認 QR Code 或網址是否正確。');
+      return;
+    }
+    TS.api('getWorksheet', { code: code }).then(function (res) {
+      if (!res.ok) {
+        state(res.error === 'NOT_FOUND' ? '找不到這份學習單' : '暫時打不開學習單', errText(res.error),
+          res.error === 'NETWORK' ? reloadBtn() : null);
+        return;
+      }
+      ws = res;
+      document.getElementById('title').textContent = res.title;
+      document.getElementById('meta').textContent = [TS.formatDate(res.course_date), res.course_title].filter(Boolean).join('・');
+      document.title = res.title + '｜學習單';
+      if (res.state === 'no_course') return state('學習單還沒開放', '講師開放後就能作答，請稍後再試一次。', reloadBtn());
+      if (res.state === 'closed') return state('學習單已停止作答', '這份學習單目前沒有開放作答，謝謝你的參與！');
+      if (TS.store.get(doneKey())) return showDone(true);
+      renderForm();
+    });
+
+    function renderForm() {
+      var progressBar = h('i');
+      var progressText = h('span');
+      var errorBox = h('div', { class: 'error', role: 'alert' });
+      var submitBtn = h('button', { type: 'submit', class: 'submit', text: '送出學習單 →' });
+      var hp = h('input', { type: 'text', name: 'website', tabindex: '-1', autocomplete: 'off', id: 'website' });
+      var name = h('input', { class: 'input', id: 'wName', maxlength: '30', autocomplete: 'name' });
+      var email = h('input', { class: 'input', id: 'wEmail', type: 'email', maxlength: '100', autocomplete: 'email', inputmode: 'email' });
+      var agree = h('input', { type: 'checkbox', id: 'wAgree' });
+
+      function updateProgress() {
+        var req = ws.questions.filter(function (q) { return q.required; });
+        var done = req.filter(form.filled).length;
+        progressBar.style.width = (req.length ? done / req.length * 100 : 100) + '%';
+        progressText.textContent = '完成 ' + done + ' / ' + req.length + ' 題必填';
+      }
+      form = TS.questionForm(ws.questions, function () {
+        errorBox.textContent = '';
+        updateProgress();
+      }, '請在這裡作答');
+
+      var who = h('div', { class: 'q who', id: 'who' },
+        h('div', { class: 'q-tag req', text: '作答者' }),
+        h('label', { class: 'field', for: 'wName' }, '姓名', name),
+        h('label', { class: 'field', for: 'wEmail' }, 'Email', email),
+        h('label', { class: 'consent', for: 'wAgree' }, agree, h('span', { text: CONSENT })));
+
+      var el = h('form', { novalidate: true, onsubmit: function (e) {
+        e.preventDefault();
+        if (!name.value.trim()) return stop('請填姓名。', name);
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.value.trim())) return stop(ERR.INVALID_EMAIL, email);
+        if (!agree.checked) return stop(ERR.CONSENT_REQUIRED, agree);
+        var missing = form.missing();
+        if (missing.length) {
+          missing.forEach(function (q) { document.getElementById('q-' + q.id).classList.add('missing'); });
+          errorBox.textContent = '還有 ' + missing.length + ' 題必填沒有填。';
+          document.getElementById('q-' + missing[0].id).scrollIntoView({ behavior: 'smooth', block: 'start' });
+          return;
+        }
+        TS.setBusy(submitBtn, true);
+        TS.api('submitWorksheet', {
+          code: code, name: name.value.trim(), email: email.value.trim(), consent: true,
+          answers: form.clean(), elapsed: Math.round((Date.now() - startedAt) / 1000), website: hp.value
+        }).then(function (res) {
+          TS.setBusy(submitBtn, false, '送出學習單 →');
+          if (!res.ok) {
+            if (res.error === 'CLOSED') return state('學習單已停止作答', errText('CLOSED'));
+            errorBox.textContent = errText(res.error);
+            if (res.field && document.getElementById('q-' + res.field)) document.getElementById('q-' + res.field).classList.add('missing');
+            return;
+          }
+          TS.store.set(doneKey(), true);
+          showDone(false);
+        });
+        function stop(msg, input) {
+          errorBox.textContent = msg;
+          document.getElementById('who').classList.add('missing');
+          input.focus();
+        }
+      } },
+        ws.intro ? h('div', { class: 'intro', text: ws.intro }) : null,
+        who,
+        h('div', { class: 'progress' }, h('div', { class: 'bar' }, progressBar), progressText),
+        form.cards,
+        h('div', { class: 'hp', 'aria-hidden': 'true' }, h('label', { for: 'website', text: '請勿填寫' }), hp),
+        h('div', { class: 'fine', text: '你的姓名、Email 與作答只有講師看得到，課程結束 30 天內會刪除姓名與 Email。請勿填寫病患資料。' }),
+        errorBox,
+        submitBtn);
+      el.style.display = 'contents';
+      [name, email].forEach(function (i) { i.addEventListener('input', function () { document.getElementById('who').classList.remove('missing'); }); });
+      TS.fill(body, el);
+      updateProgress();
+      startedAt = Date.now();
+    }
+
+    function showDone(before) {
+      TS.fill(body, h('div', { class: 'state' }, TS.checkMark(),
+        h('h2', { text: before ? '你已經交過這份學習單了' : '已送出，謝謝！' }),
+        h('p', { text: '講師會在課堂上看到大家的回答。如果這堂課有抽獎，你的作答也會算一次機會。' })),
+        before ? h('button', { type: 'button', class: 'ghost', text: '換一個人作答', onclick: function () {
+          TS.store.set(doneKey(), null);
+          renderForm();
+        } }) : null);
+    }
+  })();
+  </script>
+</body>
+</html>

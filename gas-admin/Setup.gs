@@ -8,12 +8,29 @@
 var SCHEMA = {
   courses: ['course_id', 'title', 'date', 'start_time', 'org_name', 'org_type', 'location', 'product_tags',
     'attendees', 'status', 'template_version', 'survey_code', 'slide_type', 'slide_url', 'prizes_json',
-    'created_at', 'updated_at', 'raffle_count_final', 'winner_count_final', 'raffle_cleared_at'],
+    'created_at', 'updated_at', 'raffle_count_final', 'winner_count_final', 'raffle_cleared_at', 'raffle_sources'],
   templates: ['version', 'status', 'questions_json', 'change_note', 'published_at'],
   responses: ['response_id', 'course_id', 'template_version', 'submitted_at', 'answers_json'],
   raffle_entries: ['entry_id', 'course_id', 'name', 'email', 'consent_at', 'created_at', 'prize', 'drawn_at', 'email_hash'],
-  audit_log: ['time', 'action', 'course_id', 'detail']
+  audit_log: ['time', 'action', 'course_id', 'detail'],
+  worksheets: ['ws_id', 'code', 'title', 'intro', 'status', 'course_id', 'questions_json', 'max_q', 'created_at', 'updated_at'],
+  ws_responses: ['response_id', 'ws_id', 'course_id', 'submitted_at', 'name', 'email', 'email_hash', 'answers_json', 'prize', 'drawn_at']
 };
+
+/** 舊的試算表少了新分頁或新欄位時自動補上（打開後台時檢查，平常只多讀一列表頭） */
+function ensureSchema_() {
+  var ss = SpreadsheetApp.getActive();
+  var missing = Object.keys(SCHEMA).some(function (name) {
+    var sh = ss.getSheetByName(name);
+    if (!sh) return true;
+    var head = sh.getRange(1, 1, 1, Math.max(1, sh.getLastColumn())).getValues()[0].map(String);
+    return SCHEMA[name].some(function (k) { return head.indexOf(k) < 0; });
+  });
+  if (missing) {
+    setupSheets();
+    TABLES_ = {};
+  }
+}
 
 // rating 題的 options 放 1 分與 5 分兩端的說明文字
 var TEMPLATE_V1 = [
@@ -134,7 +151,7 @@ function runApiTests_(url, check) {
 
   var id = admin_saveCourse({
     title: '[自我測試] 請勿使用', date: now_('yyyy-MM-dd'), start_time: '09:00',
-    org_name: '測試', org_type: '其他', prizes: [{ name: '測試獎', qty: 2 }]
+    org_name: '測試', org_type: '其他', prizes: [{ name: '測試獎', qty: 3 }]
   }).detail.course.course_id;
   var code = findCourse_(id).survey_code;
   try {
@@ -191,27 +208,51 @@ function runApiTests_(url, check) {
     check('投影統計數字正確', live.response_count === before + 3 && live.entry_count === 3);
     check('投影資料不含 Email 與姓名', liveText.indexOf('@') < 0 && liveText.indexOf('乙') < 0);
 
+    // 學習單：記名作答、連到這堂課、作答算進抽獎
+    var wsId = admin_createWorksheet('[自我測試] 學習單').ws_id;
+    var wsCode = table_('worksheets').rows.filter(function (r) { return r.ws_id === wsId; })[0].code;
+    var wsBase = { action: 'submitWorksheet', code: wsCode, elapsed: 10, consent: true };
+    function wsCall(extra) { return call(Object.assign({}, wsBase, extra)); }
+    check('學習單沒連課程不能作答', call({ action: 'getWorksheet', code: wsCode }).state === 'closed');
+    admin_linkWorksheet(wsId, id);
+    admin_setWorksheetStatus(wsId, 'open');
+    var wsInfo = call({ action: 'getWorksheet', code: wsCode });
+    check('取得學習單題目', wsInfo.state === 'open' && wsInfo.questions.length === 1);
+    check('學習單沒勾同意會被擋', wsCall({ consent: false, name: '丁', email: 'w@test.com', answers: { q1: '學到了' } }).error === 'CONSENT_REQUIRED');
+    check('學習單必填沒填會被擋', wsCall({ name: '丁', email: 'w@test.com', answers: {} }).error === 'REQUIRED');
+    check('學習單正常作答', wsCall({ name: '丁', email: 'w@test.com', answers: { q1: '學到了' } }).ok === true);
+    wsCall({ name: '乙', email: 'B@test.com', answers: { q1: '我也有登記問卷抽獎' } });
+    check('同一份學習單同 Email 不能交兩次', wsCall({ name: '丁二', email: 'W@test.com', answers: { q1: 'x' } }).error === 'DUPLICATE');
+    check('學習單題目資料不含 Email', JSON.stringify(wsInfo).indexOf('@') < 0);
+
     var early;
-    try { admin_draw(id, '測試獎'); } catch (err) { early = err.message; }
+    try { admin_draw(id, '測試獎', ['survey']); } catch (err) { early = err.message; }
     check('未結束填答不能抽獎', !!early);
 
     admin_setStatus(id, 'closed');
     check('結束後不能再填答', call({ action: 'submitResponse', survey_code: code, answers: good, elapsed: 10 }).error === 'CLOSED');
-    admin_draw(id, '測試獎');
-    admin_draw(id, '測試獎');
+    check('課程結束後學習單也停止作答', wsCall({ name: '戊', email: 'v@test.com', answers: { q1: 'x' } }).error === 'CLOSED');
+    check('沒勾名單不能抽', throws_(function () { admin_draw(id, '測試獎', []); }));
+    admin_draw(id, '測試獎', ['survey']);
+    admin_draw(id, '測試獎', ['survey']);
+    var third = admin_draw(id, '測試獎', ['ws:' + wsId]);
+    check('可以只從學習單名單抽', third.raffle.prizes[0].winners[2].source.indexOf('學習單') === 0);
     var full;
-    try { admin_draw(id, '測試獎'); } catch (err) { full = err.message; }
+    try { admin_draw(id, '測試獎', ['survey', 'ws:' + wsId]); } catch (err) { full = err.message; }
     check('獎項抽滿後不能再抽', !!full);
-    var won = table_('raffle_entries').rows.filter(function (r) { return r.course_id === id && r.prize; });
-    var people = won.map(function (r) { return r.entry_id; });
-    check('同一人不會中兩次', won.length === 2 && people[0] !== people[1]);
+    var winEmails = table_('raffle_entries').rows.concat(table_('ws_responses').rows)
+      .filter(function (r) { return r.course_id === id && r.prize; }).map(function (r) { return r.email; });
+    check('同一人不會中兩次（跨名單也一樣）', winEmails.length === 3 &&
+      winEmails.every(function (e, i) { return winEmails.indexOf(e) === i; }), winEmails.join('、'));
     var again = admin_getRaffle(id).raffle;
-    check('重新讀取只顯示已存結果', again.prizes[0].winners.length === 2 && again.remaining === 1);
+    check('重新讀取只顯示已存結果', again.prizes[0].winners.length === 3);
 
     admin_clearRaffle(id, '清除');
-    check('清除後試算表沒有這堂課的姓名與 Email', countRows_('raffle_entries', id) === 0);
+    check('清除後試算表沒有這堂課的姓名與 Email', countRows_('raffle_entries', id) === 0 &&
+      table_('ws_responses').rows.filter(function (r) { return r.course_id === id && (r.name || r.email); }).length === 0);
+    check('清除後學習單答案還在', table_('ws_responses').rows.filter(function (r) { return r.course_id === id && r.answers_json; }).length === 2);
     var after = findCourse_(id);
-    check('清除後保留登記人數與得獎人數', after.entry_count === 3 && after.winner_count === 2);
+    check('清除後保留登記人數與得獎人數', after.entry_count === 3 && after.winner_count === 3);
   } finally {
     removeTestCourse_(id);
   }
@@ -227,8 +268,10 @@ function countRows_(name, courseId) {
 }
 
 function removeTestCourse_(id) {
-  ['responses', 'raffle_entries', 'courses'].forEach(function (name) {
+  ['responses', 'raffle_entries', 'ws_responses', 'courses'].forEach(function (name) {
     var t = table_(name);
     rewriteRows_(t, t.rows.filter(function (r) { return r.course_id !== id; }));
   });
+  var ws = table_('worksheets');
+  rewriteRows_(ws, ws.rows.filter(function (r) { return r.title !== '[自我測試] 學習單'; }));
 }

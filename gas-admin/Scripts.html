@@ -200,11 +200,16 @@
     });
   }
 
-  /** 公版問卷草稿有沒存的修改時，離開前先問 */
+  /** 公版問卷草稿或學習單有沒存的修改 */
+  function hasUnsaved() {
+    return (S.view === 'templates' || S.view === 'worksheet') && S.qe && S.qe.dirty;
+  }
+
+  /** 有沒存的修改時，離開前先問 */
   function leaveGuard(go) {
-    if (S.view === 'templates' && S.tplEdit && S.tplEdit.dirty) {
-      confirmBox({ title: '離開這一頁？', text: '草稿有尚未儲存的修改，離開後會不見。', okText: '不儲存，離開', danger: true })
-        .then(function (yes) { if (yes) { S.tplEdit.dirty = false; go(); } });
+    if (hasUnsaved()) {
+      confirmBox({ title: '離開這一頁？', text: '有尚未儲存的修改，離開後會不見。', okText: '不儲存，離開', danger: true })
+        .then(function (yes) { if (yes) { S.qe.dirty = false; go(); } });
     } else {
       go();
     }
@@ -235,7 +240,7 @@
       var known = S.data.courses.filter(function (x) { return x.course_id === courseId; })[0];
       if (known) {
         // 先用列表裡已有的資料畫出來，最新回饋等資料回來再補上
-        S.detail = { course: known, questions: [], responses: [], loading: true,
+        S.detail = { course: known, questions: [], responses: [], worksheets: [], loading: true,
           raffle: { frozen: known.status === 'closed', cleared: !!known.raffle_cleared_at, entry_count: known.entry_count,
             winner_count: known.winner_count, remaining: 0,
             prizes: known.prizes.map(function (p) { return { name: p.name, qty: p.qty, winners: [] }; }) } };
@@ -270,6 +275,7 @@
     var keep = prizes.filter(function (p) { return p.name === S.prize; })[0];
     var next = prizes.filter(function (p) { return p.winners.length < p.qty; })[0];
     S.prize = (keep || next || prizes[0] || {}).name || null;
+    if (!S.raffleSel || S.raffleSel.courseId !== r.course.course_id) S.raffleSel = { courseId: r.course.course_id, keys: r.raffle.selected.slice() };
     renderRaffle();
   }
 
@@ -397,7 +403,8 @@
 
   function tplBy(status) { return S.data.templates.filter(function (t) { return t.status === status; })[0]; }
   function freshEdit(draft) {
-    return { version: draft.version, questions: JSON.parse(JSON.stringify(draft.questions)), note: draft.change_note || '', dirty: false, open: -1 };
+    return { version: draft.version, questions: JSON.parse(JSON.stringify(draft.questions)), note: draft.change_note || '', dirty: false, open: -1,
+      newTag: 'v' + draft.version + ' 新增', savedText: '草稿已儲存', render: function () { renderTemplates(); } };
   }
 
   function showTemplates(version) {
@@ -482,6 +489,7 @@
 
   function draftEditor(pub) {
     var e = S.tplEdit;
+    S.qe = e;
     var pubIds = pub ? pub.questions.map(function (q) { return q.id; }) : [];
     var note = h('input', { class: 'input', maxlength: '100', placeholder: '例：新增「得知管道」題', 'aria-label': '這一版改了什麼', id: 'tplNote' });
     note.value = e.note;
@@ -489,7 +497,7 @@
 
     var barText = h('span', { class: 'note' });
     var saveBtn = h('button', { type: 'button', class: 'btn btn-blue btn-sm', text: '儲存草稿', onclick: saveDraft });
-    S.tplBar = { text: barText, btn: saveBtn };
+    S.qeBar = { text: barText, btn: saveBtn };
     refreshBar();
 
     return [
@@ -511,15 +519,17 @@
     ];
   }
 
+  // ---------- 題目編輯器（公版問卷草稿與學習單共用；S.qe 是目前正在編的那一份） ----------
+
   function markDirty() {
-    S.tplEdit.dirty = true;
+    S.qe.dirty = true;
     refreshBar();
   }
   function refreshBar() {
-    if (!S.tplBar) return;
-    var dirty = S.tplEdit && S.tplEdit.dirty;
-    S.tplBar.text.textContent = dirty ? '有尚未儲存的修改' : '草稿已儲存';
-    S.tplBar.btn.disabled = !dirty;
+    if (!S.qeBar || !S.qe) return;
+    var dirty = S.qe.dirty;
+    S.qeBar.text.textContent = dirty ? '有尚未儲存的修改' : S.qe.savedText;
+    S.qeBar.btn.disabled = !dirty;
   }
 
   function questionCard(q, i, editable, isNew) {
@@ -531,15 +541,15 @@
         h('div', { class: 'row', style: 'gap:8px' },
           h('span', { class: 'pill', text: TYPE_NAMES[q.type] }),
           h('span', { class: 'note', text: q.required ? '必填' : '選填' }),
-          editable && isNew ? h('span', { class: 'pill pill-draft', text: 'v' + S.tplEdit.version + ' 新增' }) : null),
+          editable && isNew ? h('span', { class: 'pill pill-draft', text: S.qe.newTag }) : null),
         h('div', { class: 'q-text', text: q.label || '（還沒寫題目）' }),
         h('div', { class: 'note', text: summaryOf(q) })),
       editable ? h('div', { class: 'q-tools' },
         h('button', { type: 'button', class: 'icon-btn', 'aria-label': '往上移', text: '↑', disabled: i === 0, onclick: function () { moveQ(i, i - 1); } }),
-        h('button', { type: 'button', class: 'icon-btn', 'aria-label': '往下移', text: '↓', disabled: i === S.tplEdit.questions.length - 1,
+        h('button', { type: 'button', class: 'icon-btn', 'aria-label': '往下移', text: '↓', disabled: i === S.qe.questions.length - 1,
           onclick: function () { moveQ(i, i + 1); } }),
         h('button', { type: 'button', class: 'icon-btn', 'aria-label': '編輯第 ' + (i + 1) + ' 題', text: '✎',
-          onclick: function () { S.tplEdit.open = i; renderTemplates(); } })) : null);
+          onclick: function () { S.qe.open = i; S.qe.render(); } })) : null);
     if (editable) {
       card.draggable = true;
       card.addEventListener('dragstart', function (ev) { S.dragFrom = i; card.classList.add('dragging'); ev.dataTransfer.effectAllowed = 'move'; });
@@ -552,7 +562,7 @@
   }
 
   function editCard(q, i) {
-    var e = S.tplEdit;
+    var e = S.qe;
     var label = h('input', { class: 'input', maxlength: '100', placeholder: '題目文字', 'aria-label': '題目文字' });
     label.value = q.label;
     label.addEventListener('input', function () { q.label = label.value; markDirty(); });
@@ -568,7 +578,7 @@
           q.options = defaultOptions(type);
           if (type === 'text') q.maxLength = 500; else delete q.maxLength;
           markDirty();
-          renderTemplates();
+          S.qe.render();
         } });
       }));
 
@@ -583,12 +593,12 @@
           inp.addEventListener('input', function () { q.options[j] = inp.value; markDirty(); });
           return h('div', { class: 'row', style: 'flex-wrap:nowrap' }, inp,
             h('button', { type: 'button', class: 'icon-btn', 'aria-label': '刪除這個選項', text: '×', disabled: q.options.length <= 2,
-              onclick: function () { q.options.splice(j, 1); markDirty(); renderTemplates(); } }));
+              onclick: function () { q.options.splice(j, 1); markDirty(); S.qe.render(); } }));
         }),
         h('button', { type: 'button', class: 'btn btn-sm', text: '＋ 新增選項', disabled: q.options.length >= 20, onclick: function () {
           q.options.push('');
           markDirty();
-          renderTemplates();
+          S.qe.render();
           var inputs = document.querySelectorAll('.q-edit .stack input');
           if (inputs.length) inputs[inputs.length - 1].focus();
         } }));
@@ -615,12 +625,12 @@
         typeCtl,
         body,
         h('div', { class: 'row' },
-          h('button', { type: 'button', class: 'btn btn-sm', text: '完成', onclick: function () { e.open = -1; renderTemplates(); } }),
+          h('button', { type: 'button', class: 'btn btn-sm', text: '完成', onclick: function () { e.open = -1; S.qe.render(); } }),
           h('button', { type: 'button', class: 'btn-text btn-danger', text: '刪除這題', disabled: e.questions.length <= 1, onclick: function () {
             e.questions.splice(i, 1);
             e.open = -1;
             markDirty();
-            renderTemplates();
+            S.qe.render();
           } }))));
   }
 
@@ -631,7 +641,7 @@
   }
 
   function addQuestion(type) {
-    var e = S.tplEdit;
+    var e = S.qe;
     if (e.questions.length >= 15) { toast('每一版最多 15 題', true); return; }
     var q = { type: type, label: '', required: false };
     if (defaultOptions(type)) q.options = defaultOptions(type);
@@ -639,23 +649,23 @@
     e.questions.push(q);
     e.open = e.questions.length - 1;
     markDirty();
-    renderTemplates();
+    S.qe.render();
     var inp = document.querySelector('.q-edit input');
     if (inp) { inp.focus(); inp.scrollIntoView({ block: 'center' }); }
   }
 
   function moveQ(from, to) {
-    var list = S.tplEdit.questions;
+    var list = S.qe.questions;
     if (to < 0 || to >= list.length || from === to) return;
     var q = list.splice(from, 1)[0];
     list.splice(to, 0, q);
-    S.tplEdit.open = -1;
+    S.qe.open = -1;
     markDirty();
-    renderTemplates();
+    S.qe.render();
   }
 
   function saveDraft() {
-    S.tplBar.btn.disabled = true;
+    S.qeBar.btn.disabled = true;
     call('admin_saveDraft', S.tplEdit.questions, S.tplEdit.note).then(function (v) {
       applyTemplates(v);
       toast('已儲存草稿');
@@ -749,10 +759,12 @@
     run();
   }
 
-  function openPreview(questions, label) {
+  function openPreview(questions, label, heading, named) {
     var phone = h('div', { class: 'phone' },
-      h('div', { class: 'pv-top' }, h('div', { class: 'pv-eyebrow', text: 'ONE-MINUTE FEEDBACK' }), h('div', { class: 'pv-title', text: '課後回饋預覽（' + label + '）' })),
-      h('div', { class: 'pv-body' }, questions.map(function (q, i) {
+      h('div', { class: 'pv-top' }, h('div', { class: 'pv-eyebrow', text: 'ONE-MINUTE FEEDBACK' }), h('div', { class: 'pv-title', text: heading || '課後回饋預覽（' + label + '）' })),
+      h('div', { class: 'pv-body' }, named ? h('div', { class: 'pv-q' },
+        h('div', { class: 'pv-label', text: '姓名、Email' }), h('div', { class: 'pv-text', style: 'min-height:0', text: '學員會先填姓名與 Email，並勾選同意' })) : null,
+      questions.map(function (q, i) {
         var ctl;
         if (q.type === 'rating') {
           ctl = [h('div', { class: 'pv-rating' }, [1, 2, 3, 4, 5].map(function (n) { return h('span', { text: String(n) }); })),
@@ -1062,6 +1074,289 @@
     return fr.box;
   }
 
+  // ---------- 學習單 ----------
+
+  function wsUrl(w) { return S.data.siteUrl + 'w/?c=' + encodeURIComponent(w.code); }
+  function wsById(id) { return S.data.worksheets.filter(function (w) { return w.ws_id === id; })[0]; }
+  function courseById(id) { return S.data.courses.filter(function (c) { return c.course_id === id; })[0]; }
+
+  function showWorksheets() {
+    S.view = 'worksheets';
+    raffleEl.hidden = true;
+    setNav('worksheets');
+    renderWorksheets();
+    window.scrollTo(0, 0);
+  }
+
+  /** 可以連的課：還沒結束填答的課，日期近的在前 */
+  function linkableCourses() {
+    return S.data.courses.filter(function (c) { return c.status !== 'closed'; })
+      .sort(function (a, b) { return (a.date + a.start_time).localeCompare(b.date + b.start_time); });
+  }
+
+  function renderWorksheets() {
+    var list = S.data.worksheets;
+    fill(main,
+      h('div', { class: 'page-head' },
+        h('div', null, h('div', { class: 'eyebrow', text: 'WORKSHEETS' }), h('h1', { text: '學習單' })),
+        h('button', { type: 'button', class: 'btn btn-main', text: '＋ 新增學習單', onclick: createWorksheet })),
+      h('div', { class: 'info', text: '每份學習單有一個固定連結，放進簡報一次就好。上課前把它「連到」這堂課並開放作答，作答就會算進那堂課，抽獎時也可以勾選這份名單。學習單是記名的（姓名＋Email）。' }),
+      list.length ? h('div', { class: 'stack' }, list.map(worksheetCard))
+        : h('div', { class: 'empty' }, '還沒有學習單，按右上角「新增學習單」開始吧'));
+  }
+
+  function worksheetCard(w) {
+    var url = wsUrl(w);
+    var linked = courseById(w.course_id);
+    var sel = h('select', { class: 'input', 'aria-label': '連到課程' },
+      h('option', { value: '', text: '— 還沒連到課程 —' }),
+      (linked && linked.status === 'closed' ? [linked] : []).concat(linkableCourses()).map(function (c) {
+        return h('option', { value: c.course_id, selected: c.course_id === w.course_id,
+          text: c.date.slice(5).replace('-', '/') + '　' + c.title + (c.status === 'closed' ? '（已結束）' : '') });
+      }));
+    sel.addEventListener('change', function () { linkWorksheet(w, sel.value); });
+    return h('div', { class: 'card ws-card' },
+      h('div', { class: 'card-head' },
+        h('div', { class: 'row' }, h('h2', { text: w.title }), wsStatusPill(w)),
+        h('div', { class: 'row' },
+          h('button', { type: 'button', class: 'btn btn-sm', text: '編輯題目', onclick: function () { openWorksheet(w.ws_id); } }),
+          h('button', { type: 'button', class: 'btn btn-sm', text: w.status === 'open' ? '關閉作答' : '開放作答',
+            onclick: function () { setWorksheetStatus(w, w.status === 'open' ? 'closed' : 'open'); } }))),
+      h('div', { class: 'ws-grid' },
+        h('div', { class: 'qr-box ws-qr' }, qrSvg(url, '學習單 QR Code')),
+        h('div', { class: 'stack', style: 'gap:10px' },
+          h('div', { class: 'link-line', text: shortUrl(url) }),
+          h('div', { class: 'row' },
+            h('button', { type: 'button', class: 'btn btn-sm', text: '複製連結', onclick: function () { copyText(url); } }),
+            h('button', { type: 'button', class: 'btn btn-sm', text: '下載 QR', onclick: function () {
+              download('學習單QR_' + fileSafe(w.title) + '.png', qrPng(url));
+            } }),
+            h('a', { class: 'btn-text', href: url, target: '_blank', rel: 'noopener', text: '預覽 ↗' })),
+          h('label', { class: 'field' }, h('span', { text: '連到課程（作答會算進這堂課）' }), sel),
+          h('div', { class: 'note', text: w.questions.length + ' 題・' +
+            (linked ? '這堂課 ' + w.linked_count + ' 份作答・' : '') + '全部 ' + w.response_count + ' 份作答' }),
+          h('div', { class: 'row' },
+            linked && w.linked_count ? h('button', { type: 'button', class: 'btn btn-sm', text: '查看這堂課的作答',
+              onclick: function () { openWorksheetResponses(w.ws_id, w.course_id); } }) : null,
+            !w.response_count ? h('button', { type: 'button', class: 'btn-text btn-danger', text: '刪除學習單',
+              onclick: function () { deleteWorksheet(w); } }) : null))));
+  }
+
+  function wsStatusPill(w) {
+    var linked = courseById(w.course_id);
+    if (w.status !== 'open') return h('span', { class: 'pill pill-closed', text: '已關閉' });
+    if (!linked) return h('span', { class: 'pill pill-draft', text: '開放中・還沒連課程' });
+    if (linked.status === 'closed') return h('span', { class: 'pill pill-closed', text: '課程已結束' });
+    return h('span', { class: 'pill pill-open', text: '開放作答中' });
+  }
+
+  /** 學習單相關的動作在學習單頁和課程詳情都能做；在課程詳情時改完直接畫回課程詳情 */
+  function wsAfter(v) {
+    if (S.view === 'detail' && v.detail) return applyView(v);
+    setData(v.boot);
+    if (S.view === 'worksheets') renderWorksheets();
+  }
+  function backToCourse() { return S.view === 'detail' && S.detail ? S.detail.course.course_id : null; }
+
+  function linkWorksheet(w, courseId) {
+    call('admin_linkWorksheet', w.ws_id, courseId, backToCourse()).then(function (v) {
+      wsAfter(v);
+      toast(courseId ? '已連到「' + courseById(courseId).title + '」' : '已取消連結');
+    }).catch(function (err) { fail(err); if (S.view === 'worksheets') renderWorksheets(); });
+  }
+
+  function setWorksheetStatus(w, status) {
+    call('admin_setWorksheetStatus', w.ws_id, status, backToCourse()).then(function (v) {
+      wsAfter(v);
+      toast(status === 'open' ? '已開放作答' : '已關閉作答');
+    }).catch(fail);
+  }
+
+  function deleteWorksheet(w) {
+    confirmBox({ title: '刪除學習單？', text: '「' + w.title + '」還沒有人作答，刪除後連結就失效了。', okText: '刪除', danger: true })
+      .then(function (yes) {
+        if (!yes) return;
+        return call('admin_deleteWorksheet', w.ws_id).then(function (v) {
+          setData(v.boot);
+          renderWorksheets();
+          toast('已刪除');
+        });
+      }).catch(fail);
+  }
+
+  function createWorksheet() {
+    var input = h('input', { class: 'input', maxlength: '80', placeholder: '例：JoVE 檢索練習' });
+    var err = h('div', { class: 'form-error', role: 'alert' });
+    var btn = h('button', { type: 'button', class: 'btn btn-blue', text: '建立', onclick: go });
+    input.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+    function go() {
+      if (!input.value.trim()) { err.textContent = '請填學習單名稱'; input.focus(); return; }
+      btn.disabled = true;
+      call('admin_createWorksheet', input.value).then(function (v) {
+        document.getElementById('panelDialog').close();
+        setData(v.boot);
+        openWorksheet(v.ws_id);
+        toast('已建立學習單，先寫題目吧');
+      }).catch(function (e2) { err.textContent = e2.message; btn.disabled = false; });
+    }
+    openPanel('新增學習單', [h('label', { class: 'field' }, h('span', { text: '學習單名稱' }), input), err, h('div', null, btn)]);
+    input.focus();
+  }
+
+  // 題目編輯（和公版問卷共用同一套編輯器）
+  function openWorksheet(wsId) {
+    var w = wsById(wsId);
+    S.view = 'worksheet';
+    raffleEl.hidden = true;
+    setNav('worksheets');
+    var savedIds = w.questions.map(function (q) { return q.id; });
+    S.qe = {
+      ws_id: w.ws_id, title: w.title, intro: w.intro || '', questions: JSON.parse(JSON.stringify(w.questions)),
+      open: -1, dirty: false, newTag: '新增', savedText: '已儲存', savedIds: savedIds,
+      render: renderWorksheetEditor
+    };
+    renderWorksheetEditor();
+    window.scrollTo(0, 0);
+  }
+
+  function renderWorksheetEditor() {
+    var e = S.qe;
+    var w = wsById(e.ws_id);
+    var title = h('input', { class: 'input', maxlength: '80', 'aria-label': '學習單名稱' });
+    title.value = e.title;
+    title.addEventListener('input', function () { e.title = title.value; markDirty(); });
+    var intro = h('textarea', { class: 'input', rows: '2', maxlength: '300', placeholder: '給學員看的說明（選填），例：請邊操作邊回答，約 5 分鐘。',
+      style: 'padding:10px 14px;min-height:64px' });
+    intro.value = e.intro;
+    intro.addEventListener('input', function () { e.intro = intro.value; markDirty(); });
+    var barText = h('span', { class: 'note' });
+    var saveBtn = h('button', { type: 'button', class: 'btn btn-blue btn-sm', text: '儲存', onclick: saveWorksheet });
+    S.qeBar = { text: barText, btn: saveBtn };
+    refreshBar();
+
+    fill(main,
+      h('button', { type: 'button', class: 'back', text: '‹ 回到學習單', onclick: function () {
+        leaveGuard(function () { showWorksheets(); });
+      } }),
+      h('div', { class: 'page-head', style: 'margin-top:6px' },
+        h('div', null, h('div', { class: 'eyebrow', text: 'WORKSHEET・' + w.code }), h('h1', { text: e.title || '學習單' })),
+        h('div', { class: 'row' },
+          h('button', { type: 'button', class: 'btn', text: '手機預覽', onclick: function () { openPreview(e.questions, '', e.title, true); } }),
+          h('a', { class: 'btn', href: wsUrl(w), target: '_blank', rel: 'noopener', text: '開啟學習單 ↗' }))),
+      h('div', { class: 'tpl-main', style: 'max-width:900px' },
+        h('label', { class: 'field' }, h('span', { text: '學習單名稱' }), title),
+        h('label', { class: 'field', style: 'margin-bottom:6px' }, h('span', { text: '說明' }), intro),
+        h('div', { class: 'note', text: '學員作答時會先填姓名與 Email（並勾選同意），下面是你自訂的題目。已經有人作答的題目不能改題型。' }),
+        e.questions.map(function (q, i) {
+          return i === e.open ? editCard(q, i) : questionCard(q, i, true, !q.id || e.savedIds.indexOf(q.id) < 0);
+        }),
+        h('div', { class: 'add-q' },
+          h('b', { text: '＋ 新增題目' }),
+          Object.keys(TYPE_NAMES).map(function (type) {
+            return h('button', { type: 'button', class: 'chip', text: TYPE_NAMES[type], onclick: function () { addQuestion(type); } });
+          })),
+        h('div', { class: 'savebar' }, barText, h('div', { class: 'grow' }), saveBtn)));
+  }
+
+  function saveWorksheet() {
+    var e = S.qe;
+    S.qeBar.btn.disabled = true;
+    call('admin_saveWorksheet', e.ws_id, { title: e.title, intro: e.intro, questions: e.questions }).then(function (v) {
+      setData(v.boot);
+      e.dirty = false;
+      openWorksheet(e.ws_id);
+      toast('已儲存學習單');
+    }).catch(function (err) { refreshBar(); fail(err); });
+  }
+
+  // 課程詳情最下面的學習單區塊
+  function courseWorksheetCard(c, list) {
+    var others = S.data.worksheets.filter(function (w) { return w.course_id !== c.course_id; });
+    var pick = h('select', { class: 'input', 'aria-label': '把學習單連到這堂課', disabled: c.status === 'closed' },
+      h('option', { value: '', text: c.status === 'closed' ? '課程已結束填答，不能再連學習單' : '＋ 把學習單連到這堂課…' }),
+      others.map(function (w) {
+        var cur = courseById(w.course_id);
+        return h('option', { value: w.ws_id, text: w.title + (cur ? '（目前連在 ' + cur.date.slice(5).replace('-', '/') + ' ' + cur.title + '）' : '') });
+      }));
+    pick.addEventListener('change', function () { if (pick.value) linkWorksheet(wsById(pick.value), c.course_id); });
+    return h('div', { class: 'card', style: 'margin-top:20px' },
+      h('div', { class: 'card-head' }, h('h2', { text: '學習單（' + list.length + '）' }),
+        h('button', { type: 'button', class: 'btn-text', text: '管理所有學習單 ›', onclick: showWorksheets })),
+      list.length ? h('div', { class: 'stack', style: 'gap:10px' }, list.map(function (x) {
+        var w = wsById(x.ws_id) || x;
+        return h('div', { class: 'ws-row' },
+          h('div', { class: 'grow' },
+            h('div', { class: 'row', style: 'gap:8px' }, h('b', { text: x.title }),
+              x.linked ? wsStatusPill(w) : h('span', { class: 'pill pill-closed', text: '已改連到其他課' })),
+            h('div', { class: 'note', text: '這堂課 ' + x.count + ' 份作答・' + shortUrl(wsUrl(w)) })),
+          h('div', { class: 'row' },
+            h('button', { type: 'button', class: 'btn btn-sm', text: '查看回答狀況', disabled: !x.count,
+              onclick: function () { openWorksheetResponses(x.ws_id, c.course_id); } }),
+            x.linked ? h('button', { type: 'button', class: 'btn btn-sm', text: w.status === 'open' ? '關閉作答' : '開放作答',
+              onclick: function () { setWorksheetStatus(w, w.status === 'open' ? 'closed' : 'open'); } }) : null,
+            x.linked ? h('button', { type: 'button', class: 'btn-text', text: '取消連結', onclick: function () { linkWorksheet(w, ''); } }) : null));
+      })) : h('div', { class: 'note', text: '這堂課還沒有學習單。' }),
+      h('div', { style: 'margin-top:14px;max-width:520px' }, pick));
+  }
+
+  /** 某份學習單在這堂課的作答：每題統計＋含姓名的完整表格（只有後台看得到） */
+  function openWorksheetResponses(wsId, courseId) {
+    openPanel('學習單作答', [h('div', { class: 'note', text: '載入中…' })], true);
+    call('admin_getWorksheetResponses', wsId, courseId).then(function (d) {
+      var tab = 'summary';
+      var body = h('div', { class: 'stack', style: 'gap:14px' });
+      function render() {
+        function tabBtn(id, label) {
+          return h('button', { type: 'button', role: 'tab', class: 'tab' + (tab === id ? ' on' : ''), text: label,
+            onclick: function () { tab = id; render(); } });
+        }
+        fill(body,
+          h('div', { class: 'row' },
+            h('div', { class: 'tabs', role: 'tablist', style: 'margin:0' }, tabBtn('summary', '每題統計'), tabBtn('all', '所有作答')),
+            h('div', { class: 'grow' }),
+            h('button', { type: 'button', class: 'btn btn-sm', text: '匯出作答 CSV', disabled: !d.responses.length,
+              onclick: function () { exportWorksheet(d, courseId); } })),
+          h('div', { class: 'note', text: '學習單是記名的，名單只有你看得到；清除這堂課的抽獎資料時，姓名與 Email 會一起抹除，答案保留。' }),
+          !d.responses.length ? h('div', { class: 'note', text: '還沒有作答。' }) :
+            tab === 'summary' ? h('div', { class: 'fb-grid' }, d.worksheet.questions.map(function (q, i) { return questionSummary(q, i, d.responses); }))
+              : worksheetTable(d.worksheet.questions, d.responses));
+      }
+      var c = courseById(courseId);
+      document.getElementById('panelTitle').textContent = d.worksheet.title + (c ? '｜' + c.title : '') + '（' + d.responses.length + ' 份）';
+      fill(document.getElementById('panelBody'), body);
+      render();
+    }).catch(function (err) { fill(document.getElementById('panelBody'), h('div', { class: 'form-error', text: err.message })); });
+  }
+
+  function worksheetTable(questions, list) {
+    return h('div', { class: 'table-wrap fb-table' }, h('table', null,
+      h('thead', null, h('tr', null, h('th', { text: '時間' }), h('th', { text: '姓名' }), h('th', { text: 'Email' }),
+        questions.map(function (q, i) { return h('th', { class: 'q', title: q.label, text: 'Q' + (i + 1) + ' ' + q.label }); }))),
+      h('tbody', null, list.map(function (r) {
+        return h('tr', null,
+          h('td', { class: 'num', text: r.submitted_at.slice(5, 16) }),
+          h('td', { text: r.name || '（已清除）' }),
+          h('td', { text: r.email || '—' }),
+          questions.map(function (q) {
+            return h('td', { class: q.type === 'rating' ? 'n' : q.type === 'text' ? 't' : '', text: answerText(r.answers[q.id]) || '—' });
+          }));
+      }))));
+  }
+
+  function exportWorksheet(d, courseId) {
+    var c = courseById(courseId);
+    var qs = d.worksheet.questions;
+    var head = ['#', '送出時間', '姓名', 'Email', '中獎'].concat(qs.map(function (q, i) { return 'Q' + (i + 1) + ' ' + q.label; }));
+    var rows = d.responses.slice().reverse().map(function (r, k) {
+      return [k + 1, r.submitted_at, r.name, r.email, r.prize].concat(qs.map(function (q) { return answerText(r.answers[q.id]); }));
+    });
+    var csv = '﻿' + [head].concat(rows).map(function (r) { return r.map(csvCell).join(','); }).join('\r\n');
+    var href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    download('學習單_' + fileSafe(d.worksheet.title) + (c ? '_' + c.date : '') + '.csv', href);
+    setTimeout(function () { URL.revokeObjectURL(href); }, 4000);
+    toast('已匯出（含姓名與 Email，請存在安全的地方）');
+  }
+
   // ---------- 課程列表 ----------
 
   function renderList() {
@@ -1216,6 +1511,7 @@
     ];
 
     var rest = [
+      d.loading ? null : courseWorksheetCard(c, d.worksheets || []),
       canDelete ? h('div', { style: 'margin-top:24px' },
         h('button', { type: 'button', class: 'btn-text btn-danger', text: '刪除這堂課', onclick: function () { deleteCourse(c); } })) : null
     ];
@@ -1642,7 +1938,7 @@
           openDetail(c.course_id);
         } })),
       h('div', { class: 'raffle-status', text: r.frozen
-        ? '名單已凍結・' + r.entry_count + ' 人・同一人限中獎一次'
+        ? '名單已凍結・勾選的名單共 ' + poolOf(r).total + ' 筆・同一人限中獎一次'
         : '填答進行中・目前 ' + r.entry_count + ' 人登記' }));
 
     var body;
@@ -1663,13 +1959,14 @@
         } }) : h('p', { text: '這堂課還是草稿，請先開放填答。' }));
     } else {
       var full = prize.winners.length >= prize.qty;
-      var noOne = r.remaining === 0;
+      var noOne = poolOf(r).eligible === 0;
       var tickets = prize.winners.map(function (w) { return ticket(w, S.reveal && S.reveal.prize === prize.name && S.reveal.no === w.no); });
       if (!full && !noOne) {
         tickets.push(h('div', { class: 'ticket-next' }, h('div', { class: 'q', text: '?' }),
           h('div', { text: '第 ' + (prize.winners.length + 1) + ' 位即將揭曉' })));
       }
       body = [
+        sourcePicker(r),
         h('div', { class: 'prize-tabs', role: 'tablist' }, r.prizes.map(function (p) {
           return h('button', { type: 'button', role: 'tab', class: 'prize-tab' + (p.name === S.prize ? ' on' : ''),
             'aria-selected': String(p.name === S.prize), onclick: function () { S.prize = p.name; S.reveal = null; renderRaffle(); } },
@@ -1681,7 +1978,7 @@
       ];
       drawBtn = h('button', { type: 'button', class: 'btn btn-main btn-draw', id: 'drawBtn',
         disabled: full || noOne || S.drawing,
-        text: full ? '這個獎項已抽滿' : noOne ? '沒有人可以抽了' : S.drawing ? '抽獎中…' : '抽出下一位',
+        text: full ? '這個獎項已抽滿' : noOne ? (S.raffleSel.keys.length ? '勾選的名單沒有人可以抽了' : '請先勾選名單') : S.drawing ? '抽獎中…' : '抽出下一位',
         onclick: draw });
     }
 
@@ -1697,6 +1994,34 @@
     return h('div', { class: 'raffle-msg', style: 'margin-top:40px', text: text });
   }
 
+  /** 目前勾選的名單：總筆數與還能抽的筆數 */
+  function poolOf(r) {
+    var keys = S.raffleSel ? S.raffleSel.keys : r.selected;
+    return r.sources.filter(function (s) { return keys.indexOf(s.key) >= 0; }).reduce(function (a, s) {
+      return { total: a.total + s.total, eligible: a.eligible + s.eligible };
+    }, { total: 0, eligible: 0 });
+  }
+
+  function sourcePicker(r) {
+    if (r.sources.length < 2) return null;
+    return h('div', { class: 'sources', role: 'group', 'aria-label': '抽獎名單' },
+      h('span', { class: 'sources-label', text: '從哪些名單抽：' }),
+      r.sources.map(function (s) {
+        var on = S.raffleSel.keys.indexOf(s.key) >= 0;
+        var box = h('input', { type: 'checkbox', disabled: S.drawing });
+        box.checked = on;
+        box.addEventListener('change', function () {
+          var keys = S.raffleSel.keys.filter(function (k) { return k !== s.key; });
+          if (box.checked) keys.push(s.key);
+          S.raffleSel.keys = keys;
+          renderRaffle();
+        });
+        return h('label', { class: 'source' + (on ? ' on' : '') }, box,
+          h('span', { text: s.label }), h('span', { class: 'num', text: s.eligible + ' / ' + s.total }));
+      }),
+      h('span', { class: 'sources-hint', text: '數字＝還能抽／全部。每份名單各算一次，同一人只會中一次。' }));
+  }
+
   function ticket(w, animate) {
     var name = h('div', { class: 'ticket-name' });
     Array.from(w.name).forEach(function (ch, i) {
@@ -1705,7 +2030,8 @@
     return h('div', { class: 'ticket' + (animate ? ' flip-in' : '') },
       h('div', { class: 'ticket-no', text: 'NO.' + ('0' + w.no).slice(-2) }),
       name,
-      h('div', { class: 'ticket-mail', text: w.email }));
+      h('div', { class: 'ticket-mail', text: w.email }),
+      w.source ? h('div', { class: 'ticket-src', text: w.source }) : null);
   }
 
   function draw() {
@@ -1713,7 +2039,7 @@
     S.drawing = true;
     S.reveal = null;
     renderRaffle();
-    call('admin_draw', S.raffle.course.course_id, S.prize).then(function (res) {
+    call('admin_draw', S.raffle.course.course_id, S.prize, S.raffleSel.keys).then(function (res) {
       S.raffle = { course: res.course, raffle: res.raffle };
       S.reveal = { prize: res.winner.prize, no: res.winner.no };
     }).catch(fail).then(function () {
@@ -1742,12 +2068,15 @@
   document.querySelector('[data-nav="stats"]').addEventListener('click', function () {
     leaveGuard(function () { reload().then(showStats).catch(fail); });
   });
+  document.querySelector('[data-nav="worksheets"]').addEventListener('click', function () {
+    leaveGuard(function () { reload().then(showWorksheets).catch(fail); });
+  });
   document.querySelector('[data-nav="templates"]').addEventListener('click', function () {
     leaveGuard(function () { showTemplates(); });
   });
   document.getElementById('panelClose').addEventListener('click', function () { document.getElementById('panelDialog').close(); });
   window.addEventListener('beforeunload', function (ev) {
-    if (S.view === 'templates' && S.tplEdit && S.tplEdit.dirty) { ev.preventDefault(); ev.returnValue = ''; }
+    if (hasUnsaved()) { ev.preventDefault(); ev.returnValue = ''; }
   });
 
   setInterval(function () {
@@ -1770,6 +2099,7 @@
     if (boot.page === 'templates') return showTemplates();
     if (boot.page === 'list') return showList();
     if (boot.page === 'stats') return showStats();
+    if (boot.page === 'worksheets') return showWorksheets();
     showCalendar();
   }).catch(function (err) {
     fill(main, h('div', { class: 'card' }, h('h2', { text: '載入失敗' }), h('p', { text: err.message })));

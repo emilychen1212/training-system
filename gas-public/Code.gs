@@ -4,7 +4,8 @@
  * 部署：網頁應用程式，執行身分「我」，存取權「任何人」。
  * 這個專案只做三件事：讀取問卷題目、寫入匿名回覆與抽獎登記、回傳統計數字。
  * 程式裡沒有任何讀取或回傳姓名、Email、問卷原始答案的函式：
- * 抽獎登記只讀 course_id、email_hash、prize 三欄，回覆只讀 course_id 一欄。
+ * 抽獎登記只讀 course_id、email_hash、prize 三欄，回覆只讀 course_id 一欄，
+ * 學習單作答只讀 ws_id、course_id、email_hash 三欄（寫入時才會有姓名與 Email）。
  *
  * 指令碼屬性（專案設定 → 指令碼屬性）：
  *   SPREADSHEET_ID  必填，講習站試算表的 ID
@@ -22,6 +23,7 @@ var LIMITS = {
 };
 
 var CODE_PATTERN = /^\d{4}-\d{6}$/;
+var WS_PATTERN = /^W\d{6}$/;
 var EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 // ---------- 入口 ----------
@@ -42,7 +44,9 @@ function doPost(e) {
     submitResponse: submitResponse_,
     registerRaffle: registerRaffle_,
     getLive: getLive_,
-    getViewer: getViewer_
+    getViewer: getViewer_,
+    getWorksheet: getWorksheet_,
+    submitWorksheet: submitWorksheet_
   };
   var handler = req && handlers[req.action];
   if (!handler) return json_({ ok: false, error: 'UNKNOWN_ACTION' });
@@ -173,6 +177,72 @@ function getViewer_(req) {
   };
 }
 
+// ---------- 學習單（記名作答） ----------
+
+/** 學習單能不能作答：自己是開放的、有連到課程、那堂課還沒結束填答 */
+function worksheetState_(ws) {
+  if (ws.status !== 'open') return { state: 'closed' };
+  if (!ws.course_id) return { state: 'no_course' };
+  var c = readRows_('courses').filter(function (r) { return r.course_id === ws.course_id; })[0];
+  if (!c) return { state: 'no_course' };
+  if (c.status === 'closed') return { state: 'closed', course: c };
+  return { state: 'open', course: c };
+}
+
+function getWorksheet_(req) {
+  var ws = findWorksheet_(req.code);
+  var st = worksheetState_(ws);
+  var out = { ok: true, state: st.state, title: ws.title, intro: ws.intro };
+  if (st.course) {
+    out.course_title = st.course.title;
+    out.course_date = st.course.date;
+  }
+  if (st.state === 'open') out.questions = JSON.parse(ws.questions_json || '[]');
+  return out;
+}
+
+function submitWorksheet_(req) {
+  var ws = findWorksheet_(req.code);
+  var st = worksheetState_(ws);
+  if (st.state === 'closed') throw fail_('CLOSED');
+  if (st.state !== 'open') throw fail_('NOT_OPEN');
+  if (req.website) return { ok: true };
+  if (!(Number(req.elapsed) >= LIMITS.MIN_SECONDS)) throw fail_('TOO_FAST');
+  if (req.consent !== true) throw fail_('CONSENT_REQUIRED');
+  var name = String(req.name == null ? '' : req.name).trim().replace(/\s+/g, ' ');
+  var nameLength = Array.from(name).length;
+  if (nameLength < 1 || nameLength > LIMITS.NAME_MAX) throw fail_('INVALID_NAME');
+  var email = String(req.email == null ? '' : req.email).trim().toLowerCase();
+  if (email.length > LIMITS.EMAIL_MAX || !EMAIL_PATTERN.test(email)) throw fail_('INVALID_EMAIL');
+  var answers = validateAnswers_(JSON.parse(ws.questions_json || '[]'), req.answers);
+  var courseId = st.course.course_id;
+  var hash = sha256Hex_(ws.ws_id + '|' + courseId + '|' + email);
+
+  return withLock_(function () {
+    var sh = sheet_('ws_responses');
+    var wsIds = columnValues_(sh, 'ws_id');
+    var courseIds = columnValues_(sh, 'course_id');
+    var hashes = columnValues_(sh, 'email_hash');
+    var count = 0;
+    for (var i = 0; i < wsIds.length; i++) {
+      if (wsIds[i] !== ws.ws_id || courseIds[i] !== courseId) continue;
+      count++;
+      if (hashes[i] === hash) throw fail_('DUPLICATE');
+    }
+    if (count >= LIMITS.RESPONSES_PER_COURSE) throw fail_('FULL');
+    appendRow_(sh, [Utilities.getUuid(), ws.ws_id, courseId, now_(), name, email, hash, JSON.stringify(answers), '', '']);
+    return { ok: true };
+  });
+}
+
+function findWorksheet_(code) {
+  code = String(code || '').trim().toUpperCase();
+  if (!WS_PATTERN.test(code)) throw fail_('NOT_FOUND');
+  var ws = readRows_('worksheets').filter(function (r) { return r.code === code; })[0];
+  if (!ws) throw fail_('NOT_FOUND');
+  return ws;
+}
+
 // ---------- 驗證 ----------
 
 function validateAnswers_(questions, answers) {
@@ -293,9 +363,9 @@ function columnValues_(sh, key) {
   return sh.getRange(2, col, last - 1, 1).getValues().map(function (r) { return cell_(r[0]); });
 }
 
-/** 課程與公版問卷是公開資訊，可以整列讀；其他分頁一律不行。 */
+/** 課程、公版問卷、學習單題目是公開資訊，可以整列讀；其他分頁（有姓名、答案的）一律不行。 */
 function readRows_(name) {
-  if (name !== 'courses' && name !== 'templates') throw fail_('FORBIDDEN');
+  if (name !== 'courses' && name !== 'templates' && name !== 'worksheets') throw fail_('FORBIDDEN');
   var values = sheet_(name).getDataRange().getValues();
   var head = values[0].map(String);
   return values.slice(1).map(function (r) {

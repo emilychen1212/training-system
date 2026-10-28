@@ -106,14 +106,14 @@ function saveDraft_(questions, note) {
   return draft;
 }
 
-function cleanQuestions_(list, rows) {
+function cleanQuestions_(list, rows, minN) {
   if (!Array.isArray(list)) throw new Error('題目格式不正確');
   if (list.length < TPL_LIMITS.QUESTIONS_MIN || list.length > TPL_LIMITS.QUESTIONS_MAX) {
     throw new Error('每一版要有 ' + TPL_LIMITS.QUESTIONS_MIN + '～' + TPL_LIMITS.QUESTIONS_MAX + ' 題');
   }
   // 所有版本出現過的 id 與它的題型；新題目從最大號碼往下編
   var known = {};
-  var maxN = 0;
+  var maxN = minN || 0;
   rows.forEach(function (r) {
     parseJson_(r.questions_json, []).forEach(function (q) {
       if (!known[q.id]) known[q.id] = q.type;

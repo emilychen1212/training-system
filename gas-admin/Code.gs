@@ -30,6 +30,7 @@ function initialData_(p) {
   var initial = { page: String(p.page || ''), code: String(p.c || '') };
   // 開頁時就把資料一起帶出去，畫面不用再等第二趟
   try {
+    ensureSchema_();
     initial.boot = admin_bootstrap();
     var course = initial.code && initial.boot.courses.filter(function (c) { return c.survey_code === initial.code; })[0];
     if (course && initial.page === 'raffle') initial.raffle = admin_getRaffle(course.course_id);
@@ -61,6 +62,7 @@ function admin_bootstrap() {
     orgTypes: ORG_TYPES,
     courses: courses,
     templates: templatesSummary_(),
+    worksheets: worksheetsSummary_(),
     reminders: courses.filter(needsCleanup_).map(function (c) {
       return { course_id: c.course_id, title: c.title, date: c.date, entries: c.entry_count };
     })
@@ -86,6 +88,7 @@ function admin_getCourse(courseId) {
     course: c,
     questions: questions,
     responses: all,
+    worksheets: courseWorksheets_(c.course_id),
     raffle: raffleSummary_(c)
   };
 }
@@ -183,7 +186,7 @@ function admin_getRaffle(courseIdOrCode) {
   return { course: publicCourse_(c), raffle: raffleSummary_(c) };
 }
 
-function admin_draw(courseId, prizeName) {
+function admin_draw(courseId, prizeName, sources) {
   return withLock_(function () {
     var c = findCourse_(courseId);
     if (c.status !== 'closed') throw new Error('請先「結束填答」，名單凍結後才能抽獎');
@@ -191,21 +194,28 @@ function admin_draw(courseId, prizeName) {
     var prize = parseJson_(c.prizes_json, []).filter(function (p) { return p.name === prizeName; })[0];
     if (!prize) throw new Error('找不到這個獎項');
 
-    var t = table_('raffle_entries');
-    var mine = t.rows.filter(function (r) { return r.course_id === c.course_id; });
-    var drawnCount = mine.filter(function (r) { return r.prize === prize.name; }).length;
-    if (drawnCount >= prize.qty) throw new Error('這個獎項已經抽滿了');
-    var pool = mine.filter(function (r) { return !r.prize; });
-    if (!pool.length) throw new Error('已經沒有還沒中獎的人可以抽了');
+    var pool = rafflePool_(c);
+    var keys = pool.sources.map(function (s) { return s.key; });
+    var chosen = (Array.isArray(sources) ? sources : []).filter(function (k) { return keys.indexOf(k) >= 0; });
+    if (!chosen.length) throw new Error('請至少勾選一份抽獎名單');
 
-    var pick = pool[Math.floor(Math.random() * pool.length)];
-    updateRow_(t, pick, { prize: prize.name, drawn_at: now_('yyyy-MM-dd HH:mm:ss.SSS') });
-    audit_('draw', c.course_id, prize.name + ' 第 ' + (drawnCount + 1) + ' 位');
+    var drawnCount = pool.tickets.filter(function (t) { return t.row.prize === prize.name; }).length;
+    if (drawnCount >= prize.qty) throw new Error('這個獎項已經抽滿了');
+    // 每份名單各算一張籤（填越多份機會越大），但同一個 Email 中過就不會再中
+    var eligible = pool.tickets.filter(function (t) { return chosen.indexOf(t.source) >= 0 && !pool.won[t.row.email]; });
+    if (!eligible.length) throw new Error('勾選的名單裡已經沒有還沒中獎的人了');
+
+    var pick = eligible[Math.floor(Math.random() * eligible.length)];
+    updateRow_(table_(pick.sheet), pick.row, { prize: prize.name, drawn_at: now_('yyyy-MM-dd HH:mm:ss.SSS') });
+    var courses = table_('courses');
+    updateRow_(courses, rowById_(courses, c.course_id), { raffle_sources: JSON.stringify(chosen) });
+    c.raffle_sources = JSON.stringify(chosen);
+    audit_('draw', c.course_id, prize.name + ' 第 ' + (drawnCount + 1) + ' 位（' + pool.labels[pick.source] + '）');
 
     return {
       course: c,
       raffle: raffleSummary_(c),
-      winner: { prize: prize.name, no: drawnCount + 1, name: maskName_(pick.name), email: maskEmail_(pick.email) }
+      winner: { prize: prize.name, no: drawnCount + 1, name: maskName_(pick.row.name), email: maskEmail_(pick.row.email) }
     };
   });
 }
@@ -213,21 +223,22 @@ function admin_draw(courseId, prizeName) {
 function admin_exportRaffle(courseId) {
   var c = findCourse_(courseId);
   if (c.raffle_cleared_at) throw new Error('這堂課的抽獎資料已經清除，沒有名單可以匯出');
-  var mine = table_('raffle_entries').rows.filter(function (r) { return r.course_id === c.course_id; });
-  mine.sort(function (a, b) {
-    if (!!a.prize !== !!b.prize) return a.prize ? -1 : 1;
-    return (a.drawn_at || a.created_at) < (b.drawn_at || b.created_at) ? -1 : 1;
+  var pool = rafflePool_(c);
+  var list = pool.tickets.slice().sort(function (a, b) {
+    if (!!a.row.prize !== !!b.row.prize) return a.row.prize ? -1 : 1;
+    return (a.row.drawn_at || a.at) < (b.row.drawn_at || b.at) ? -1 : 1;
   });
-  var lines = [['獎項', '姓名', 'Email', '登記時間', '抽出時間']].concat(mine.map(function (r) {
-    return [r.prize || '（未中獎）', r.name, r.email, r.created_at, r.drawn_at];
+  var lines = [['名單', '獎項', '姓名', 'Email', '登記時間', '抽出時間']].concat(list.map(function (t) {
+    return [pool.labels[t.source], t.row.prize || '（未中獎）', t.row.name, t.row.email, t.at, t.row.drawn_at];
   }));
-  audit_('export_raffle', c.course_id, mine.length + ' 筆');
+  audit_('export_raffle', c.course_id, list.length + ' 筆');
   return {
     filename: '抽獎名單_' + c.date + '_' + c.title.replace(/[\\\/:*?"<>|]/g, '') + '.csv',
     csv: '﻿' + lines.map(function (cols) { return cols.map(csvCell_).join(','); }).join('\r\n')
   };
 }
 
+/** 清除：刪掉課程回饋的抽獎登記；學習單作答保留答案、抹掉姓名與 Email */
 function admin_clearRaffle(courseId, confirmText) {
   if (confirmText !== '清除') throw new Error('請輸入「清除」兩個字確認');
   return withLock_(function () {
@@ -237,14 +248,23 @@ function admin_clearRaffle(courseId, confirmText) {
     if (c.raffle_cleared_at) throw new Error('這堂課已經清除過了');
     var t = table_('raffle_entries');
     var mine = t.rows.filter(function (r) { return r.course_id === c.course_id; });
-    var winners = mine.filter(function (r) { return r.prize; }).length;
+    var ws = table_('ws_responses');
+    var wsMine = ws.rows.filter(function (r) { return r.course_id === c.course_id && r.email; });
+    var winners = mine.concat(wsMine).filter(function (r) { return r.prize; }).length;
     rewriteRows_(t, t.rows.filter(function (r) { return r.course_id !== c.course_id; }));
+    if (wsMine.length) {
+      ws = table_('ws_responses');
+      rewriteRows_(ws, ws.rows.map(function (r) {
+        return r.course_id === c.course_id ? Object.assign({}, r, { name: '', email: '', email_hash: '' }) : r;
+      }));
+    }
     updateRow_(courses, c, {
       raffle_count_final: mine.length, winner_count_final: winners,
       raffle_cleared_at: now_(), updated_at: now_()
     });
-    audit_('clear_raffle', c.course_id, '刪除 ' + mine.length + ' 筆登記（得獎 ' + winners + ' 位）');
-    return view_(c.course_id, { cleared: { entries: mine.length, winners: winners } });
+    var total = mine.length + wsMine.length;
+    audit_('clear_raffle', c.course_id, '刪除 ' + mine.length + ' 筆抽獎登記、抹除 ' + wsMine.length + ' 份學習單姓名（得獎 ' + winners + ' 位）');
+    return view_(c.course_id, { cleared: { entries: total, winners: winners } });
   });
 }
 
@@ -254,11 +274,12 @@ function listCourses_() {
   var counts = courseCounts_();
   return table_('courses').rows.map(function (r) {
     var c = publicCourse_(r);
-    var n = counts[r.course_id] || { responses: 0, entries: 0, winners: 0, q1sum: 0, q1n: 0, useYes: 0, useN: 0 };
+    var n = counts[r.course_id] || { responses: 0, entries: 0, winners: 0, q1sum: 0, q1n: 0, useYes: 0, useN: 0, wsNamed: 0, wsAll: 0 };
     c.response_count = n.responses;
     c.entry_count = r.raffle_cleared_at ? Number(r.raffle_count_final) || 0 : n.entries;
     c.winner_count = r.raffle_cleared_at ? Number(r.winner_count_final) || 0 : n.winners;
-    c.live_entries = n.entries;
+    c.live_entries = n.entries + n.wsNamed;
+    c.ws_count = n.wsAll;
     c.avg_q1 = n.q1n ? Math.round(n.q1sum / n.q1n * 10) / 10 : null;
     c.q1_sum = n.q1sum;
     c.q1_n = n.q1n;
@@ -286,7 +307,7 @@ function publicCourse_(r) {
     slide_type: r.slide_type, slide_url: r.slide_url,
     prizes: parseJson_(r.prizes_json, []), prizes_json: r.prizes_json,
     raffle_cleared_at: r.raffle_cleared_at,
-    raffle_count_final: r.raffle_count_final, winner_count_final: r.winner_count_final,
+    raffle_count_final: r.raffle_count_final, winner_count_final: r.winner_count_final, raffle_sources: r.raffle_sources,
     created_at: r.created_at, updated_at: r.updated_at
   };
 }
@@ -294,7 +315,7 @@ function publicCourse_(r) {
 function courseCounts_() {
   var out = {};
   function get(id) {
-    return out[id] || (out[id] = { responses: 0, entries: 0, winners: 0, q1sum: 0, q1n: 0, useYes: 0, useN: 0 });
+    return out[id] || (out[id] = { responses: 0, entries: 0, winners: 0, q1sum: 0, q1n: 0, useYes: 0, useN: 0, wsNamed: 0, wsAll: 0 });
   }
   table_('responses').rows.forEach(function (r) {
     var n = get(r.course_id);
@@ -310,25 +331,75 @@ function courseCounts_() {
     n.entries++;
     if (r.prize) n.winners++;
   });
+  table_('ws_responses').rows.forEach(function (r) {
+    var n = get(r.course_id);
+    n.wsAll++;
+    if (r.email) n.wsNamed++;
+    if (r.prize) n.winners++;
+  });
   return out;
 }
 
+/**
+ * 這堂課所有可抽的籤：課程回饋的抽獎登記一人一張，每份學習單作答一份一張。
+ * won 記錄已經中過的 Email（不分名單），同一人不會中兩次。
+ */
+function rafflePool_(c) {
+  var tickets = [];
+  var labels = { survey: '課程回饋' };
+  var keys = ['survey'];
+  if (!c.raffle_cleared_at) {
+    table_('raffle_entries').rows.forEach(function (r) {
+      if (r.course_id === c.course_id) tickets.push({ source: 'survey', sheet: 'raffle_entries', row: r, at: r.created_at });
+    });
+  }
+  var titles = {};
+  table_('worksheets').rows.forEach(function (w) {
+    titles[w.ws_id] = w.title;
+    if (w.course_id === c.course_id) addKey('ws:' + w.ws_id);
+  });
+  table_('ws_responses').rows.forEach(function (r) {
+    if (r.course_id !== c.course_id || !r.email) return;
+    addKey('ws:' + r.ws_id);
+    tickets.push({ source: 'ws:' + r.ws_id, sheet: 'ws_responses', row: r, at: r.submitted_at });
+  });
+  function addKey(k) {
+    if (keys.indexOf(k) >= 0) return;
+    keys.push(k);
+    labels[k] = '學習單：' + (titles[k.slice(3)] || '（已刪除）');
+  }
+  var won = {};
+  tickets.forEach(function (t) { if (t.row.prize) won[t.row.email] = true; });
+  var sources = keys.map(function (k) {
+    var mine = tickets.filter(function (t) { return t.source === k; });
+    return { key: k, label: labels[k], total: mine.length,
+      eligible: mine.filter(function (t) { return !won[t.row.email]; }).length };
+  });
+  return { tickets: tickets, won: won, labels: labels, sources: sources };
+}
+
 function raffleSummary_(c) {
-  var mine = c.raffle_cleared_at ? [] :
-    table_('raffle_entries').rows.filter(function (r) { return r.course_id === c.course_id; });
+  var pool = rafflePool_(c);
   var prizes = (c.prizes || parseJson_(c.prizes_json, [])).map(function (p) {
-    var winners = mine.filter(function (r) { return r.prize === p.name; })
-      .sort(function (a, b) { return a.drawn_at < b.drawn_at ? -1 : 1; })
-      .map(function (r, i) { return { no: i + 1, name: maskName_(r.name), email: maskEmail_(r.email) }; });
+    var winners = pool.tickets.filter(function (t) { return t.row.prize === p.name; })
+      .sort(function (a, b) { return a.row.drawn_at < b.row.drawn_at ? -1 : 1; })
+      .map(function (t, i) {
+        return { no: i + 1, name: maskName_(t.row.name), email: maskEmail_(t.row.email), source: pool.labels[t.source] };
+      });
     return { name: p.name, qty: p.qty, winners: winners };
   });
+  var keys = pool.sources.map(function (s) { return s.key; });
+  var selected = parseJson_(c.raffle_sources, ['survey']).filter(function (k) { return keys.indexOf(k) >= 0; });
+  var surveyCount = pool.tickets.filter(function (t) { return t.source === 'survey'; }).length;
+  var winnerCount = pool.tickets.filter(function (t) { return t.row.prize; }).length;
   return {
     frozen: c.status === 'closed',
     cleared: !!c.raffle_cleared_at,
-    entry_count: c.raffle_cleared_at ? Number(c.raffle_count_final) || 0 : mine.length,
-    winner_count: c.raffle_cleared_at ? Number(c.winner_count_final) || 0 :
-      mine.filter(function (r) { return r.prize; }).length,
-    remaining: mine.filter(function (r) { return !r.prize; }).length,
+    entry_count: c.raffle_cleared_at ? Number(c.raffle_count_final) || 0 : surveyCount,
+    winner_count: c.raffle_cleared_at ? Number(c.winner_count_final) || 0 : winnerCount,
+    remaining: pool.tickets.filter(function (t) { return !pool.won[t.row.email]; }).length,
+    sources: pool.sources,
+    selected: selected.length ? selected : ['survey'],
     prizes: prizes
   };
 }
@@ -372,7 +443,7 @@ function cleanCourseInput_(d) {
 
 function checkPrizeChange_(row, prizes) {
   var drawn = {};
-  table_('raffle_entries').rows.forEach(function (r) {
+  table_('raffle_entries').rows.concat(table_('ws_responses').rows).forEach(function (r) {
     if (r.course_id === row.course_id && r.prize) drawn[r.prize] = (drawn[r.prize] || 0) + 1;
   });
   Object.keys(drawn).forEach(function (name) {

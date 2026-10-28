@@ -347,6 +347,20 @@ td.num { font-family: var(--num); }
 .fb-table { max-height: 560px; overflow: auto; }
 .fb-table thead th { position: sticky; top: 0; background: #fff; z-index: 1; }
 
+
+/* ---------- 學習單 ---------- */
+.ws-grid { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 20px; align-items: start; }
+.ws-qr { width: 150px; height: 150px; }
+.ws-row { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px; }
+.sources { position: relative; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 24px; }
+.sources-label { color: #A9C1E6; font-weight: 700; }
+.source { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid #3B5A88; cursor: pointer; font-weight: 700; }
+.source.on { border-color: var(--orange); background: rgba(242, 138, 30, .14); }
+.source input { width: 18px; height: 18px; accent-color: var(--orange); }
+.source .num { color: #A9C1E6; font-size: 14px; }
+.sources-hint { flex-basis: 100%; color: #A9C1E6; font-size: 13px; }
+.ticket-src { margin-top: 8px; font-size: 12px; font-weight: 700; color: var(--orange-ink); }
+
 /* ---------- 平板以下：側欄收合到上方 ---------- */
 @media (max-width: 900px) {
   .app { grid-template-columns: 1fr; }
@@ -374,7 +388,7 @@ td.num { font-family: var(--num); }
   .q-tools { grid-column: 2; }
 }
 @media (max-width: 560px) {
-  .qr-card { grid-template-columns: 1fr; }
+  .qr-card, .ws-grid { grid-template-columns: 1fr; }
   .tiles { grid-template-columns: 1fr 1fr; }
   h1 { font-size: 28px; }
 }
