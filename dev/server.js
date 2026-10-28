@@ -65,13 +65,16 @@ function seed() {
   const ws = fresh(admin).admin_createWorksheet('JoVE 檢索練習').ws_id;
   admin.admin_saveWorksheet(ws, { title: 'JoVE 檢索練習', intro: '請邊操作 JoVE 邊回答，大約 5 分鐘。', questions: [
     { type: 'single', label: '你用關鍵字找到幾支相關影片？', required: true, options: ['0 支', '1–3 支', '4 支以上'] },
-    { type: 'text', label: '寫下一支你覺得最有用的影片名稱', required: true, maxLength: 200 }] });
+    { type: 'text', label: '寫下一支你覺得最有用的影片名稱', required: true, maxLength: 200 },
+    { type: 'rank', label: '依你最想用的順序排列這些功能', required: true, options: ['影片字幕', '章節跳轉', '相關文獻', '測驗題'] }] });
   admin.admin_linkWorksheet(ws, id);
   admin.admin_setWorksheetStatus(ws, 'open');
   const wsCode = admin.table_('worksheets').rows.filter((r) => r.ws_id === ws)[0].code;
-  [['王小明', 'mingwang@gmail.com', '4 支以上'], ['周杰', 'jay@school.edu', '1–3 支'], ['吳宜', 'wuyi@gmail.com', '1–3 支']].forEach(([name, email, n]) => {
+  [['王小明', 'mingwang@gmail.com', '4 支以上', ['章節跳轉', '影片字幕', '測驗題', '相關文獻']],
+    ['周杰', 'jay@school.edu', '1–3 支', ['影片字幕', '章節跳轉', '相關文獻', '測驗題']],
+    ['吳宜', 'wuyi@gmail.com', '1–3 支', ['章節跳轉', '相關文獻', '影片字幕', '測驗題']]].forEach(([name, email, n, rank]) => {
     callPublic(JSON.stringify({ action: 'submitWorksheet', code: wsCode, name, email, consent: true, elapsed: 30,
-      answers: { q2: n, q3: 'PCR 實驗步驟示範' } }));
+      answers: { q2: n, q3: 'PCR 實驗步驟示範', q4: rank } }));
   });
   fresh(admin);
   console.log(`  學習單 http://localhost:${PORT}/w/?c=${wsCode}`);

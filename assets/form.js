@@ -64,6 +64,9 @@
         });
         card.appendChild(h('div', { class: 'fine', style: 'margin:-8px 0 10px', text: '可複選' }));
         card.appendChild(boxes);
+      } else if (q.type === 'rank') {
+        card.appendChild(h('div', { class: 'fine', style: 'margin:-8px 0 10px', text: '按住左邊的 ⠿ 拖曳，或按箭頭調整順序，第 1 名放最上面' }));
+        card.appendChild(rankList(q, labelId));
       } else if (q.type === 'text') {
         var max = Math.min(q.maxLength || 500, 500);
         var count = h('div', { class: 'count', text: '0 / ' + max });
@@ -77,6 +80,113 @@
         card.appendChild(count);
       }
       return card;
+    }
+
+    /**
+     * 排序題：起始順序每人打亂；拖曳用 pointer 事件（手機手指也能拖），另有 ↑↓ 按鈕與鍵盤方向鍵。
+     * 學員動過順序、或按「這個順序就對了」之後才算作答。
+     */
+    function rankList(q, labelId) {
+      var order = shuffled(q.options);
+      var list = h('ol', { class: 'rank', 'aria-labelledby': labelId });
+      var live = h('div', { class: 'sr-only', 'aria-live': 'polite' });
+      var ok = h('button', { type: 'button', class: 'rank-ok', text: '這個順序就對了', onclick: function () { commit(); } });
+      var wrap = h('div', null, list, ok, live);
+
+      function commit() {
+        answers[q.id] = order.slice();
+        ok.hidden = true;
+        wrap.classList.add('done');
+        touched(q);
+      }
+
+      function move(from, to, focusDir) {
+        if (to < 0 || to >= order.length || from === to) return;
+        var item = order.splice(from, 1)[0];
+        order.splice(to, 0, item);
+        draw();
+        commit();
+        live.textContent = item + ' 移到第 ' + (to + 1) + ' 名';
+        if (focusDir) {
+          var btn = list.children[to].querySelector(focusDir === 'up' ? '.up' : '.down');
+          (btn && !btn.disabled ? btn : list.children[to].querySelector('.grip')).focus();
+        }
+      }
+
+      function draw() {
+        list.replaceChildren.apply(list, order.map(function (o, i) {
+          var grip = h('button', { type: 'button', class: 'grip', 'aria-label': '第 ' + (i + 1) + ' 名：' + o + '，按住拖曳或用上下方向鍵移動' },
+            h('span', { class: 'dots6', 'aria-hidden': 'true', text: '⠿' }), h('b', { class: 'num', text: String(i + 1) }));
+          grip.addEventListener('keydown', function (ev) {
+            if (ev.key === 'ArrowUp') { ev.preventDefault(); move(i, i - 1); list.children[Math.max(i - 1, 0)].querySelector('.grip').focus(); }
+            if (ev.key === 'ArrowDown') { ev.preventDefault(); move(i, i + 1); list.children[Math.min(i + 1, order.length - 1)].querySelector('.grip').focus(); }
+          });
+          grip.addEventListener('pointerdown', function (ev) { startDrag(ev, i); });
+          return h('li', { class: 'rank-item' }, grip,
+            h('span', { class: 'rank-text', text: o }),
+            h('button', { type: 'button', class: 'up', 'aria-label': '把「' + o + '」往上移', text: '↑', disabled: i === 0, onclick: function () { move(i, i - 1, 'up'); } }),
+            h('button', { type: 'button', class: 'down', 'aria-label': '把「' + o + '」往下移', text: '↓', disabled: i === order.length - 1,
+              onclick: function () { move(i, i + 1, 'down'); } }));
+        }));
+      }
+
+      function startDrag(ev, from) {
+        if (ev.button > 0) return;
+        ev.preventDefault();
+        var items = [].slice.call(list.children);
+        var me = items[from];
+        var sy = window.scrollY;
+        var rects = items.map(function (el) { var r = el.getBoundingClientRect(); return { top: r.top + sy, h: r.height }; });
+        var gap = items.length > 1 ? rects[1].top - rects[0].top - rects[0].h : 8;
+        var shift = rects[from].h + gap;
+        var startY = ev.clientY + sy;
+        var lastY = ev.clientY;
+        var to = from, raf = 0;
+        list.classList.add('dragging');
+        me.classList.add('lift');
+        try { ev.target.setPointerCapture(ev.pointerId); } catch (e) { /* 舊瀏覽器沒有也沒關係 */ }
+
+        function layout() {
+          var dy = lastY + window.scrollY - startY;
+          me.style.transform = 'translateY(' + dy + 'px)';
+          var center = rects[from].top + dy + rects[from].h / 2;
+          to = 0;
+          rects.forEach(function (r, i) { if (i !== from && r.top + r.h / 2 < center) to++; });
+          items.forEach(function (el, i) {
+            if (i === from) return;
+            var d = from < i && i <= to ? -shift : to <= i && i < from ? shift : 0;
+            el.style.transform = d ? 'translateY(' + d + 'px)' : '';
+          });
+        }
+        // 拖到畫面上下邊緣時自動捲動
+        function edge() {
+          var zone = 70, v = 0;
+          if (lastY < zone) v = -Math.ceil((zone - lastY) / 6);
+          else if (lastY > window.innerHeight - zone) v = Math.ceil((lastY - window.innerHeight + zone) / 6);
+          if (v) { window.scrollBy(0, v); layout(); }
+          raf = requestAnimationFrame(edge);
+        }
+        function onMove(e) { lastY = e.clientY; layout(); }
+        function onEnd() {
+          cancelAnimationFrame(raf);
+          document.removeEventListener('pointermove', onMove);
+          document.removeEventListener('pointerup', onEnd);
+          document.removeEventListener('pointercancel', onEnd);
+          list.classList.remove('dragging');
+          items.forEach(function (el) { el.style.transform = ''; el.classList.remove('lift'); });
+          if (to !== from) move(from, to);
+          else draw();
+          var g = list.children[to] && list.children[to].querySelector('.grip');
+          if (g) g.focus({ preventScroll: true });
+        }
+        document.addEventListener('pointermove', onMove);
+        document.addEventListener('pointerup', onEnd);
+        document.addEventListener('pointercancel', onEnd);
+        raf = requestAnimationFrame(edge);
+      }
+
+      draw();
+      return wrap;
     }
 
     function filled(q) {
@@ -100,6 +210,19 @@
       }
     };
   };
+
+  /** 打亂順序；選項兩個以上時保證和原本順序不同 */
+  function shuffled(list) {
+    var a = list.slice();
+    for (var tries = 0; tries < 5; tries++) {
+      for (var i = a.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1));
+        var t = a[i]; a[i] = a[j]; a[j] = t;
+      }
+      if (a.join('\n') !== list.join('\n')) break;
+    }
+    return a;
+  }
 
   /** 送出按鈕：按下後下沉，送出中顯示三顆跳動小圓點 */
   TS.setBusy = function (btn, busy, label) {

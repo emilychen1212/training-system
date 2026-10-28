@@ -273,6 +273,14 @@ function validateAnswers_(questions, answers) {
         });
         out[q.id] = q.options.filter(function (o) { return v.indexOf(o) >= 0; });
         break;
+      case 'rank':
+        // 排序題：必須是全部選項的一種排列，每個選項剛好出現一次
+        if (!Array.isArray(v) || v.length !== q.options.length) throw fail_('INVALID', q.id);
+        v.forEach(function (x, i) {
+          if (typeof x !== 'string' || q.options.indexOf(x) < 0 || v.indexOf(x) !== i) throw fail_('INVALID', q.id);
+        });
+        out[q.id] = v.slice();
+        break;
       case 'yesno':
         if (v !== '是' && v !== '否') throw fail_('INVALID', q.id);
         out[q.id] = v;

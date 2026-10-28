@@ -398,7 +398,7 @@
 
   // ---------- 公版問卷 ----------
 
-  var TYPE_NAMES = { rating: '1–5 評分', single: '單選', multi: '複選', yesno: '是／否', text: '文字' };
+  var TYPE_NAMES = { rating: '1–5 評分', single: '單選', multi: '複選', rank: '排序', yesno: '是／否', text: '文字' };
   var TPL_STATUS = { draft: '草稿・編輯中', published: '使用中', archived: '已封存' };
 
   function tplBy(status) { return S.data.templates.filter(function (t) { return t.status === status; })[0]; }
@@ -434,6 +434,7 @@
     if (q.type === 'rating') return '1 ' + (o[0] || '') + ' ⋯ 5 ' + (o[1] || '');
     if (q.type === 'yesno') return '是・否';
     if (q.type === 'text') return '最多 ' + (q.maxLength || 500) + ' 字';
+    if (q.type === 'rank') return '學員拖曳排序：' + (o.filter(Boolean).join('・') || '（還沒有選項）');
     return o.filter(Boolean).join('・') || '（還沒有選項）';
   }
 
@@ -583,10 +584,13 @@
       }));
 
     var body = null;
-    if (q.type === 'single' || q.type === 'multi') {
+    if (q.type === 'single' || q.type === 'multi' || q.type === 'rank') {
       q.options = q.options || [];
+      var most = q.type === 'rank' ? 8 : 20;
       body = h('div', { class: 'stack', style: 'gap:8px' },
-        h('span', { class: 'note', text: '選項（2～20 個，每個最多 100 字）' }),
+        h('span', { class: 'note', text: q.type === 'rank'
+          ? '要排序的項目（2～8 個，每個最多 100 字）。每位學員看到的起始順序會打亂，避免大家直接照原本順序交出。'
+          : '選項（2～20 個，每個最多 100 字）' }),
         q.options.map(function (o, j) {
           var inp = h('input', { class: 'input', maxlength: '100', 'aria-label': '選項 ' + (j + 1) });
           inp.value = o;
@@ -595,7 +599,7 @@
             h('button', { type: 'button', class: 'icon-btn', 'aria-label': '刪除這個選項', text: '×', disabled: q.options.length <= 2,
               onclick: function () { q.options.splice(j, 1); markDirty(); S.qe.render(); } }));
         }),
-        h('button', { type: 'button', class: 'btn btn-sm', text: '＋ 新增選項', disabled: q.options.length >= 20, onclick: function () {
+        h('button', { type: 'button', class: 'btn btn-sm', text: '＋ 新增選項', disabled: q.options.length >= most, onclick: function () {
           q.options.push('');
           markDirty();
           S.qe.render();
@@ -635,7 +639,7 @@
   }
 
   function defaultOptions(type) {
-    if (type === 'single' || type === 'multi') return ['', ''];
+    if (type === 'single' || type === 'multi' || type === 'rank') return ['', ''];
     if (type === 'rating') return ['非常不滿意', '非常滿意'];
     return undefined;
   }
@@ -771,6 +775,10 @@
             h('div', { class: 'pv-ends' }, h('span', { text: '1 ' + ((q.options || [])[0] || '') }), h('span', { text: '5 ' + ((q.options || [])[1] || '') }))];
         } else if (q.type === 'text') {
           ctl = h('div', { class: 'pv-text', text: '留下您的想法' });
+        } else if (q.type === 'rank') {
+          ctl = h('div', { class: 'pv-choices pv-rank' }, (q.options || []).filter(Boolean).map(function (o, j) {
+            return h('span', null, h('b', { class: 'num', text: String(j + 1) }), o, h('i', { text: '⠿' }));
+          }));
         } else {
           var opts = q.type === 'yesno' ? ['是', '否'] : (q.options || []).filter(Boolean);
           ctl = h('div', { class: 'pv-choices' + (q.type === 'yesno' ? ' two' : '') }, opts.map(function (o) {
@@ -781,6 +789,7 @@
           h('div', { class: 'pv-tag' + (q.required ? ' req' : ''), text: 'Q' + (i + 1) + '・' + (q.required ? '必填' : '選填') }),
           h('div', { class: 'pv-label', text: q.label || '（還沒寫題目）' }),
           q.type === 'multi' ? h('div', { class: 'pv-ends', style: 'margin:-6px 0 8px', text: '可複選' }) : null,
+          q.type === 'rank' ? h('div', { class: 'pv-ends', style: 'margin:-6px 0 8px', text: '拖曳或按箭頭調整順序（每人起始順序不同）' }) : null,
           ctl);
       }), h('div', { class: 'pv-submit', text: '送出回饋 →' })));
     openPanel('手機預覽', [phone]);
@@ -1338,7 +1347,7 @@
           h('td', { text: r.name || '（已清除）' }),
           h('td', { text: r.email || '—' }),
           questions.map(function (q) {
-            return h('td', { class: q.type === 'rating' ? 'n' : q.type === 'text' ? 't' : '', text: answerText(r.answers[q.id]) || '—' });
+            return h('td', { class: q.type === 'rating' ? 'n' : q.type === 'text' ? 't' : '', text: answerText(r.answers[q.id], q.type === 'rank') || '—' });
           }));
       }))));
   }
@@ -1348,7 +1357,7 @@
     var qs = d.worksheet.questions;
     var head = ['#', '送出時間', '姓名', 'Email', '中獎'].concat(qs.map(function (q, i) { return 'Q' + (i + 1) + ' ' + q.label; }));
     var rows = d.responses.slice().reverse().map(function (r, k) {
-      return [k + 1, r.submitted_at, r.name, r.email, r.prize].concat(qs.map(function (q) { return answerText(r.answers[q.id]); }));
+      return [k + 1, r.submitted_at, r.name, r.email, r.prize].concat(qs.map(function (q) { return answerText(r.answers[q.id], q.type === 'rank'); }));
     });
     var csv = '﻿' + [head].concat(rows).map(function (r) { return r.map(csvCell).join(','); }).join('\r\n');
     var href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -1581,9 +1590,10 @@
         ]));
   }
 
-  function answerText(v) {
+  function answerText(v, rank) {
     if (v === undefined || v === null || v === '') return '';
-    return Array.isArray(v) ? v.join('、') : String(v);
+    if (Array.isArray(v)) return v.join(rank ? ' > ' : '、');
+    return String(v);
   }
 
   function questionSummary(q, i, list) {
@@ -1594,7 +1604,9 @@
       h('div', null, h('div', { class: 'q-text', text: q.label }),
         h('div', { class: 'note', text: TYPE_NAMES[q.type] + '・' + n + ' 人回答' + (n < list.length ? '（' + (list.length - n) + ' 人沒答）' : '') })));
     var body;
-    if (q.type === 'text') {
+    if (q.type === 'rank') {
+      body = rankSummary(q, answered);
+    } else if (q.type === 'text') {
       body = n ? h('ul', { class: 'fb-texts' }, answered.map(function (r) {
         return h('li', null, h('div', { text: r.answers[q.id] }), h('div', { class: 'note num', text: r.submitted_at.slice(5, 16) }));
       })) : h('div', { class: 'note', text: '還沒有人回答' });
@@ -1624,7 +1636,33 @@
         q.type === 'multi' ? h('div', { class: 'note', text: '可複選，比例是「選這一項的人 ÷ 回答這題的人」，加總會超過 100%。' }) : null
       ];
     }
-    return h('div', { class: 'fb-q' + (q.type === 'text' ? ' wide' : '') }, head, body);
+    return h('div', { class: 'fb-q' + (q.type === 'text' || q.type === 'rank' ? ' wide' : '') }, head, body);
+  }
+
+  /** 排序題：每個項目的平均名次（越小越前面），由前到後排；長條越長表示排得越前面 */
+  function rankSummary(q, answered) {
+    var n = answered.length;
+    if (!n) return h('div', { class: 'note', text: '還沒有人回答' });
+    var k = q.options.length;
+    var rows = q.options.map(function (o) {
+      var sum = 0, first = 0;
+      answered.forEach(function (r) {
+        var pos = r.answers[q.id].indexOf(o) + 1;
+        sum += pos;
+        if (pos === 1) first++;
+      });
+      return { name: o, avg: sum / n, first: first };
+    }).sort(function (a, b) { return a.avg - b.avg || b.first - a.first; });
+    return [
+      h('div', { class: 'bars rank' }, rows.map(function (x, j) {
+        var score = k > 1 ? (k - x.avg) / (k - 1) : 1;
+        return h('div', { class: 'bar-row', title: x.name + '：平均第 ' + x.avg.toFixed(1) + ' 名，' + x.first + ' 人排第 1' },
+          h('span', { class: 'bar-label', text: (j + 1) + '. ' + x.name }),
+          h('span', { class: 'bar-track' }, h('i', { style: 'width:' + Math.max(score * 100, 3) + '%' })),
+          h('span', { class: 'bar-val num', text: '平均第 ' + x.avg.toFixed(1) + ' 名・' + x.first + ' 人排第 1' }));
+      })),
+      h('div', { class: 'note', text: '依平均名次由前到後排列；長條越長，表示大家排得越前面。' })
+    ];
   }
 
   function responsesTable(questions, list) {
@@ -1636,7 +1674,7 @@
           h('td', { class: 'num', text: String(list.length - k) }),
           h('td', { class: 'num', text: row.submitted_at.slice(5, 16) }),
           questions.map(function (q) {
-            var t = answerText(row.answers[q.id]);
+            var t = answerText(row.answers[q.id], q.type === 'rank');
             return h('td', { class: q.type === 'rating' ? 'n' : q.type === 'text' ? 't' : '', text: t || '—' });
           }));
       }))));
@@ -1647,7 +1685,7 @@
     var c = d.course;
     var head = ['#', '送出時間', '問卷版本'].concat(d.questions.map(function (q, i) { return 'Q' + (i + 1) + ' ' + q.label; }));
     var rows = d.responses.slice().reverse().map(function (r, k) {
-      return [k + 1, r.submitted_at, 'v' + c.template_version].concat(d.questions.map(function (q) { return answerText(r.answers[q.id]); }));
+      return [k + 1, r.submitted_at, 'v' + c.template_version].concat(d.questions.map(function (q) { return answerText(r.answers[q.id], q.type === 'rank'); }));
     });
     var csv = '﻿' + [head].concat(rows).map(function (r) { return r.map(csvCell).join(','); }).join('\r\n');
     var href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));

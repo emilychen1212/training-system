@@ -120,6 +120,9 @@ function runSelfTest() {
   check('新題目取下一個沒用過的編號（刪掉的不重用）', cleaned[1].id === 'q8', cleaned[1].id);
   check('既有題目不能改題型', throws_(function () { cleanQuestions_([{ id: 'q1', type: 'text', label: 'x' }], fakeRows); }));
   check('單選至少 2 個選項', throws_(function () { cleanQuestions_([{ type: 'single', label: 'x', options: ['只有一個'] }], fakeRows); }));
+  check('排序題最多 8 個選項', throws_(function () {
+    cleanQuestions_([{ type: 'rank', label: 'x', options: ['1', '2', '3', '4', '5', '6', '7', '8', '9'] }], fakeRows);
+  }));
   check('每版最多 15 題', throws_(function () {
     cleanQuestions_(new Array(16).join('.').split('.').map(function () { return { type: 'yesno', label: 'x' }; }), fakeRows);
   }));
@@ -214,13 +217,19 @@ function runApiTests_(url, check) {
     var wsBase = { action: 'submitWorksheet', code: wsCode, elapsed: 10, consent: true };
     function wsCall(extra) { return call(Object.assign({}, wsBase, extra)); }
     check('學習單沒連課程不能作答', call({ action: 'getWorksheet', code: wsCode }).state === 'closed');
+    admin_saveWorksheet(wsId, { title: '[自我測試] 學習單', intro: '', questions: WS_DEFAULT_QUESTIONS.concat(
+      { type: 'rank', label: '依喜好排序', required: false, options: ['甲', '乙', '丙'] }) });
     admin_linkWorksheet(wsId, id);
     admin_setWorksheetStatus(wsId, 'open');
     var wsInfo = call({ action: 'getWorksheet', code: wsCode });
-    check('取得學習單題目', wsInfo.state === 'open' && wsInfo.questions.length === 1);
+    check('取得學習單題目', wsInfo.state === 'open' && wsInfo.questions.length === 2);
     check('學習單沒勾同意會被擋', wsCall({ consent: false, name: '丁', email: 'w@test.com', answers: { q1: '學到了' } }).error === 'CONSENT_REQUIRED');
     check('學習單必填沒填會被擋', wsCall({ name: '丁', email: 'w@test.com', answers: {} }).error === 'REQUIRED');
-    check('學習單正常作答', wsCall({ name: '丁', email: 'w@test.com', answers: { q1: '學到了' } }).ok === true);
+    check('排序題選項重複會被擋', wsCall({ name: '丁', email: 'w@test.com', answers: { q1: '學到了', q2: ['甲', '甲', '乙'] } }).error === 'INVALID');
+    check('排序題少一項會被擋', wsCall({ name: '丁', email: 'w@test.com', answers: { q1: '學到了', q2: ['甲', '乙'] } }).error === 'INVALID');
+    check('學習單正常作答（含排序題）', wsCall({ name: '丁', email: 'w@test.com', answers: { q1: '學到了', q2: ['丙', '甲', '乙'] } }).ok === true);
+    check('排序題照學員排的順序存', table_('ws_responses').rows.filter(function (r) { return r.ws_id === wsId; })
+      .some(function (r) { return r.answers_json === JSON.stringify({ q1: '學到了', q2: ['丙', '甲', '乙'] }); }));
     wsCall({ name: '乙', email: 'B@test.com', answers: { q1: '我也有登記問卷抽獎' } });
     check('同一份學習單同 Email 不能交兩次', wsCall({ name: '丁二', email: 'W@test.com', answers: { q1: 'x' } }).error === 'DUPLICATE');
     check('學習單題目資料不含 Email', JSON.stringify(wsInfo).indexOf('@') < 0);

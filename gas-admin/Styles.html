@@ -300,6 +300,10 @@ dialog.wide { width: min(760px, calc(100vw - 32px)); }
 .pv-choices span.box::before { content: "□ "; }
 .pv-choices.two span::before { content: ""; }
 .pv-choices.two span { text-align: center; }
+.pv-rank span { display: flex; align-items: center; gap: 8px; }
+.pv-rank span::before { content: none; }
+.pv-rank b { width: 20px; height: 20px; border-radius: 50%; background: var(--navy); color: #fff; font-size: 11px; display: grid; place-items: center; flex: none; }
+.pv-rank i { margin-left: auto; font-style: normal; color: var(--muted); }
 .pv-text { border: 1px solid var(--line); border-radius: 12px; padding: 10px; color: var(--muted); background: var(--ground); min-height: 64px; font-size: 14px; }
 .pv-submit { background: var(--blue); color: #fff; border-radius: 14px; text-align: center; font-weight: 900; padding: 13px; box-shadow: 0 5px 0 var(--navy); margin-bottom: 5px; }
 
@@ -341,6 +345,7 @@ td.num { font-family: var(--num); }
 .bar-track { height: 14px; background: var(--ground); border-radius: 4px; overflow: hidden; }
 .bar-track i { display: block; height: 100%; background: var(--blue); border-radius: 0 4px 4px 0; min-width: 0; }
 .bar-val { text-align: right; color: var(--muted); white-space: nowrap; }
+.bars.rank .bar-row { grid-template-columns: minmax(70px, 30%) minmax(0, 1fr) auto; }
 .fb-texts { list-style: none; margin: 0; padding: 0; max-height: 420px; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
 .fb-texts li { background: var(--ground); border-radius: 12px; padding: 10px 14px; white-space: pre-wrap; word-break: break-word; display: flex; justify-content: space-between; gap: 12px; }
 .fb-texts li .note { flex: none; }

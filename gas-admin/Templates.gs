@@ -6,8 +6,8 @@
  * 題目 id 跨版本沿用（統計靠 id 合併），新題目取下一個沒用過的號碼，刪掉的號碼不再使用。
  */
 
-var Q_TYPES = ['rating', 'single', 'multi', 'yesno', 'text'];
-var TPL_LIMITS = { QUESTIONS_MIN: 1, QUESTIONS_MAX: 15, OPTIONS_MIN: 2, OPTIONS_MAX: 20, OPTION_LEN: 100, LABEL_LEN: 100, END_LEN: 20, NOTE_LEN: 100 };
+var Q_TYPES = ['rating', 'single', 'multi', 'rank', 'yesno', 'text'];
+var TPL_LIMITS = { QUESTIONS_MIN: 1, QUESTIONS_MAX: 15, OPTIONS_MIN: 2, OPTIONS_MAX: 20, RANK_MAX: 8, OPTION_LEN: 100, LABEL_LEN: 100, END_LEN: 20, NOTE_LEN: 100 };
 
 function templatesSummary_() {
   var usage = {};
@@ -142,10 +142,11 @@ function cleanQuestions_(list, rows, minN) {
 
     var out = { id: id, type: type, label: label, required: q.required === true };
     var opts = Array.isArray(q.options) ? q.options : [];
-    if (type === 'single' || type === 'multi') {
+    if (type === 'single' || type === 'multi' || type === 'rank') {
       var clean = opts.map(function (o) { return cleanText_(o, TPL_LIMITS.OPTION_LEN); }).filter(Boolean);
-      if (clean.length < TPL_LIMITS.OPTIONS_MIN || clean.length > TPL_LIMITS.OPTIONS_MAX) {
-        throw new Error(no + '的選項要有 ' + TPL_LIMITS.OPTIONS_MIN + '～' + TPL_LIMITS.OPTIONS_MAX + ' 個');
+      var most = type === 'rank' ? TPL_LIMITS.RANK_MAX : TPL_LIMITS.OPTIONS_MAX;
+      if (clean.length < TPL_LIMITS.OPTIONS_MIN || clean.length > most) {
+        throw new Error(no + '的選項要有 ' + TPL_LIMITS.OPTIONS_MIN + '～' + most + ' 個');
       }
       clean.forEach(function (o, j) { if (clean.indexOf(o) !== j) throw new Error(no + '有重複的選項：' + o); });
       out.options = clean;
