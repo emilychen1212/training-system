@@ -413,6 +413,8 @@ td.num { font-family: var(--num); }
   .tiles { grid-template-columns: 1fr 1fr; }
   h1 { font-size: 28px; }
 }
+.ws-strip { max-width: 900px; display: flex; flex-direction: column; gap: 12px; padding: 16px 18px; margin-bottom: 18px; }
+.ws-strip .link-line { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001s !important; transition-duration: .001s !important; }
 }
