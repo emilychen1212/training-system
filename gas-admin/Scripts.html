@@ -1110,8 +1110,8 @@
       h('div', { class: 'page-head' },
         h('div', null, h('div', { class: 'eyebrow', text: 'WORKSHEETS' }), h('h1', { text: '學習單' })),
         h('button', { type: 'button', class: 'btn btn-main', text: '＋ 新增學習單', onclick: createWorksheet })),
-      h('div', { class: 'info', text: '每份學習單有一個固定連結，放進簡報一次就好。上課前把它「連到」這堂課並開放作答，作答就會算進那堂課，抽獎時也可以勾選這份名單。學習單是記名的（姓名＋Email）。' }),
-      list.length ? h('div', { class: 'stack' }, list.map(worksheetCard))
+      h('div', { class: 'info', text: '每份學習單有一個固定連結，放進簡報一次就好。上課前把它「連到」這堂課，再到編輯頁開放作答，作答就會算進那堂課，抽獎時也可以勾選這份名單。QR Code、開放／關閉作答、刪除都在編輯頁。學習單是記名的（姓名＋Email）。' }),
+      list.length ? h('div', { class: 'card ws-list' }, list.map(worksheetCard))
         : h('div', { class: 'empty' }, '還沒有學習單，按右上角「新增學習單」開始吧'));
   }
 
@@ -1141,30 +1141,24 @@
       } })];
   }
 
+  /** 學習單列表的一列：狀態、連到課程、複製連結、預覽、編輯題目（QR、開放／關閉、刪除都在編輯頁） */
   function worksheetCard(w) {
     var url = wsUrl(w);
     var linked = courseById(w.course_id);
-    return h('div', { class: 'card ws-card' },
-      h('div', { class: 'card-head' },
-        h('div', { class: 'row' }, h('h2', { text: w.title }), wsStatusPill(w)),
-        h('div', { class: 'row' },
-          h('button', { type: 'button', class: 'btn btn-sm', text: '編輯題目', onclick: function () { openWorksheet(w.ws_id); } }),
-          wsStatusBtn(w))),
-      h('div', { class: 'ws-grid' },
-        h('div', { class: 'qr-box ws-qr' }, qrSvg(url, '學習單 QR Code')),
-        h('div', { class: 'stack', style: 'gap:10px' },
-          h('div', { class: 'link-line', text: shortUrl(url) }),
-          h('div', { class: 'row' }, wsShareBtns(w),
-            h('a', { class: 'btn-text', href: url, target: '_blank', rel: 'noopener', text: '預覽 ↗' })),
-          wsCourseSelect(w),
-          h('div', { class: 'note', text: w.questions.length + ' 題・' +
-            (linked ? '這堂課 ' + w.linked_count + ' 份作答・' : '') + '全部 ' + w.response_count + ' 份作答' }),
-          h('div', { class: 'row' },
-            linked && w.linked_count ? h('button', { type: 'button', class: 'btn btn-sm', text: '查看這堂課的作答',
-              onclick: function () { openWorksheetResponses(w.ws_id, w.course_id); } }) : null,
-            !w.response_count ? h('button', { type: 'button', class: 'btn-text btn-danger', text: '刪除學習單',
-              onclick: function () { deleteWorksheet(w); } }) : null))));
+    return h('div', { class: 'ws-item' },
+      h('div', { class: 'ws-item-main' },
+        h('div', { class: 'row', style: 'gap:8px' },
+          h('button', { type: 'button', class: 'ws-item-title', text: w.title, onclick: function () { openWorksheet(w.ws_id); } }),
+          wsStatusPill(w)),
+        h('div', { class: 'note', text: w.questions.length + ' 題・' +
+          (linked ? '這堂課 ' + w.linked_count + ' 份作答・' : '') + '全部 ' + w.response_count + ' 份作答' })),
+      h('div', { class: 'ws-item-course' }, wsCourseSelect(w)),
+      h('div', { class: 'row ws-item-tools' },
+        h('button', { type: 'button', class: 'btn btn-sm', text: '複製連結', onclick: function () { copyText(url); } }),
+        h('a', { class: 'btn btn-sm', href: url, target: '_blank', rel: 'noopener', text: '預覽 ↗' }),
+        h('button', { type: 'button', class: 'btn btn-sm btn-blue', text: '編輯題目', onclick: function () { openWorksheet(w.ws_id); } })));
   }
+
 
   function wsStatusPill(w) {
     var linked = courseById(w.course_id);
@@ -1207,7 +1201,8 @@
         if (!yes) return;
         return call('admin_deleteWorksheet', w.ws_id).then(function (v) {
           setData(v.boot);
-          renderWorksheets();
+          if (S.qe) S.qe.dirty = false;
+          showWorksheets();
           toast('已刪除');
         });
       }).catch(fail);
@@ -1273,12 +1268,16 @@
           h('button', { type: 'button', class: 'btn', text: '手機預覽', onclick: function () { openPreview(e.questions, '', e.title, true); } }),
           h('a', { class: 'btn', href: wsUrl(w), target: '_blank', rel: 'noopener', text: '開啟學習單 ↗' }))),
       h('div', { class: 'card ws-strip' },
-        h('div', { class: 'row' },
-          wsStatusPill(w),
-          h('span', { class: 'link-line grow', text: shortUrl(wsUrl(w)) }),
-          wsShareBtns(w),
-          wsStatusBtn(w, 'btn btn-sm btn-blue')),
-        wsCourseSelect(w)),
+        h('div', { class: 'qr-box ws-qr' }, qrSvg(wsUrl(w), '學習單 QR Code')),
+        h('div', { class: 'stack', style: 'gap:12px;min-width:0' },
+          h('div', { class: 'row' },
+            wsStatusPill(w),
+            h('span', { class: 'link-line grow', text: shortUrl(wsUrl(w)) }),
+            wsShareBtns(w),
+            wsStatusBtn(w, 'btn btn-sm btn-blue')),
+          wsCourseSelect(w),
+          courseById(w.course_id) && w.linked_count ? h('div', null, h('button', { type: 'button', class: 'btn btn-sm',
+            text: '查看這堂課的作答（' + w.linked_count + ' 份）', onclick: function () { openWorksheetResponses(w.ws_id, w.course_id); } })) : null)),
       h('div', { class: 'tpl-main', style: 'max-width:900px' },
         h('label', { class: 'field' }, h('span', { text: '學習單名稱' }), title),
         h('label', { class: 'field', style: 'margin-bottom:6px' }, h('span', { text: '說明' }), intro),
@@ -1291,7 +1290,10 @@
           Object.keys(TYPE_NAMES).map(function (type) {
             return h('button', { type: 'button', class: 'chip', text: TYPE_NAMES[type], onclick: function () { addQuestion(type); } });
           })),
-        h('div', { class: 'savebar' }, barText, h('div', { class: 'grow' }), saveBtn)));
+        h('div', { class: 'savebar' }, barText, h('div', { class: 'grow' }), saveBtn),
+        h('div', { class: 'ws-danger' }, w.response_count
+          ? h('span', { class: 'note', text: '已經有 ' + w.response_count + ' 份作答，不能刪除這份學習單；不想再用可以按上方「關閉作答」。' })
+          : h('button', { type: 'button', class: 'btn-text btn-danger', text: '刪除這份學習單', onclick: function () { deleteWorksheet(w); } }))));
   }
 
   function saveWorksheet() {
