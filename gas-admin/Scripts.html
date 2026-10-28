@@ -275,6 +275,7 @@
     var keep = prizes.filter(function (p) { return p.name === S.prize; })[0];
     var next = prizes.filter(function (p) { return p.winners.length < p.qty; })[0];
     S.prize = (keep || next || prizes[0] || {}).name || null;
+    if (!keep) S.drawN = null;
     if (!S.raffleSel || S.raffleSel.courseId !== r.course.course_id) S.raffleSel = { courseId: r.course.course_id, keys: r.raffle.selected.slice() };
     renderRaffle();
   }
@@ -1998,26 +1999,34 @@
     } else {
       var full = prize.winners.length >= prize.qty;
       var noOne = poolOf(r).eligible === 0;
-      var tickets = prize.winners.map(function (w) { return ticket(w, S.reveal && S.reveal.prize === prize.name && S.reveal.no === w.no); });
+      var n = drawCount(prize, r);
+      var nos = S.reveal && S.reveal.prize === prize.name ? S.reveal.nos : [];
+      var step = nos.length > 1 ? Math.min(150, 3000 / nos.length) : 0;
+      var tickets = prize.winners.map(function (w) {
+        var k = nos.indexOf(w.no);
+        return ticket(w, k >= 0, k * step);
+      });
       if (!full && !noOne) {
         tickets.push(h('div', { class: 'ticket-next' }, h('div', { class: 'q', text: '?' }),
-          h('div', { text: '第 ' + (prize.winners.length + 1) + ' 位即將揭曉' })));
+          h('div', { text: n > 1 ? '接下來 ' + n + ' 位即將揭曉' : '第 ' + (prize.winners.length + 1) + ' 位即將揭曉' })));
       }
       body = [
         sourcePicker(r),
         h('div', { class: 'prize-tabs', role: 'tablist' }, r.prizes.map(function (p) {
           return h('button', { type: 'button', role: 'tab', class: 'prize-tab' + (p.name === S.prize ? ' on' : ''),
-            'aria-selected': String(p.name === S.prize), onclick: function () { S.prize = p.name; S.reveal = null; renderRaffle(); } },
+            'aria-selected': String(p.name === S.prize), onclick: function () { S.prize = p.name; S.reveal = null; S.drawN = null; renderRaffle(); } },
             p.name, h('span', { class: 'num', text: p.winners.length + ' / ' + p.qty }));
         })),
         h('div', { class: 'eyebrow', text: 'LUCKY DRAW' }),
         h('h1', { text: prize.winners.length ? '恭喜幸運的你！' : '準備抽出「' + prize.name + '」' }),
-        h('div', { class: 'tickets', 'aria-live': 'polite' }, tickets)
+        h('div', { class: 'tickets' + (prize.winners.length + (full ? 0 : 1) > 6 ? ' many' : ''), 'aria-live': 'polite' }, tickets)
       ];
       drawBtn = h('button', { type: 'button', class: 'btn btn-main btn-draw', id: 'drawBtn',
         disabled: full || noOne || S.drawing,
-        text: full ? '這個獎項已抽滿' : noOne ? (S.raffleSel.keys.length ? '勾選的名單沒有人可以抽了' : '請先勾選名單') : S.drawing ? '抽獎中…' : '抽出下一位',
+        text: full ? '這個獎項已抽滿' : noOne ? (S.raffleSel.keys.length ? '勾選的名單沒有人可以抽了' : '請先勾選名單') : S.drawing ? '抽獎中…'
+          : n > 1 ? '一次抽出 ' + n + ' 位' : '抽出下一位',
         onclick: draw });
+      if (!full && !noOne) drawBtn = h('div', { class: 'draw-ctl' }, countPicker(prize, r, n), drawBtn);
     }
 
     fill(raffleEl, h('div', { class: 'raffle-in' },
@@ -2026,6 +2035,31 @@
       h('div', { class: 'raffle-foot' },
         h('div', { class: 'note' }, '投影畫面只顯示遮罩姓名與 Email', h('br'), '完整名單請至後台或試算表查看'),
         drawBtn)));
+  }
+
+  /** 一次抽幾位：預設是這個獎項剩下的名額，可以改小分批抽；1 就是原本的「抽出下一位」 */
+  function drawCount(prize, r) {
+    var left = prize.qty - prize.winners.length;
+    var most = Math.max(1, Math.min(left, poolOf(r).eligible));
+    var n = S.drawN === null || S.drawN === undefined ? left : S.drawN;
+    return Math.max(1, Math.min(most, n));
+  }
+
+  function countPicker(prize, r, n) {
+    var most = Math.max(1, Math.min(prize.qty - prize.winners.length, poolOf(r).eligible));
+    if (most <= 1) return null;
+    function set(v) { S.drawN = Math.max(1, Math.min(most, Math.floor(Number(v)) || 1)); renderRaffle(); }
+    var inp = h('input', { type: 'number', min: '1', max: String(most), class: 'num', 'aria-label': '一次抽幾位', disabled: S.drawing });
+    inp.value = n;
+    inp.addEventListener('change', function () { set(inp.value); });
+    return h('div', { class: 'draw-count' },
+      h('span', { text: '一次抽' }),
+      h('button', { type: 'button', 'aria-label': '少抽一位', text: '−', disabled: S.drawing || n <= 1, onclick: function () { set(n - 1); } }),
+      inp,
+      h('button', { type: 'button', 'aria-label': '多抽一位', text: '+', disabled: S.drawing || n >= most, onclick: function () { set(n + 1); } }),
+      h('span', { text: '位' }),
+      n !== most ? h('button', { type: 'button', class: 'draw-all', text: '全部 ' + most, onclick: function () { set(most); } })
+        : h('button', { type: 'button', class: 'draw-all', text: '改成 1 位', onclick: function () { set(1); } }));
   }
 
   function message(text) {
@@ -2060,12 +2094,13 @@
       h('span', { class: 'sources-hint', text: '數字＝還能抽／全部。每份名單各算一次，同一人只會中一次。' }));
   }
 
-  function ticket(w, animate) {
+  function ticket(w, animate, delay) {
+    delay = delay || 0;
     var name = h('div', { class: 'ticket-name' });
     Array.from(w.name).forEach(function (ch, i) {
-      name.appendChild(h('span', animate ? { class: 'pop', style: 'animation-delay:' + (180 + i * 90) + 'ms', text: ch } : { text: ch }));
+      name.appendChild(h('span', animate ? { class: 'pop', style: 'animation-delay:' + (delay + 180 + i * 90) + 'ms', text: ch } : { text: ch }));
     });
-    return h('div', { class: 'ticket' + (animate ? ' flip-in' : '') },
+    return h('div', { class: 'ticket' + (animate ? ' flip-in' : ''), style: delay ? 'animation-delay:' + delay + 'ms' : null },
       h('div', { class: 'ticket-no', text: 'NO.' + ('0' + w.no).slice(-2) }),
       name,
       h('div', { class: 'ticket-mail', text: w.email }),
@@ -2077,12 +2112,18 @@
     S.drawing = true;
     S.reveal = null;
     renderRaffle();
-    call('admin_draw', S.raffle.course.course_id, S.prize, S.raffleSel.keys).then(function (res) {
+    var prize = S.raffle.raffle.prizes.filter(function (p) { return p.name === S.prize; })[0];
+    var n = drawCount(prize, S.raffle.raffle);
+    call('admin_draw', S.raffle.course.course_id, S.prize, S.raffleSel.keys, n).then(function (res) {
       S.raffle = { course: res.course, raffle: res.raffle };
-      S.reveal = { prize: res.winner.prize, no: res.winner.no };
+      S.reveal = { prize: res.winner.prize, nos: res.winners.map(function (w) { return w.no; }) };
+      if (res.short) toast('勾選的名單只剩 ' + res.winners.length + ' 位可以抽，還有 ' + res.short + ' 份沒抽出', true);
     }).catch(fail).then(function () {
       S.drawing = false;
       renderRaffle();
+      // 一次抽很多位時，把票券區捲到畫面上方，投影時看得到全部
+      var box = raffleEl.querySelector('.tickets.many');
+      if (box && S.reveal && S.reveal.nos.length > 1) box.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   }
 

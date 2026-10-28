@@ -208,6 +208,22 @@ dialog::backdrop { background: rgba(18, 48, 92, .45); }
 .raffle-foot { position: relative; margin-top: auto; padding-top: 40px; display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; flex-wrap: wrap; }
 .raffle-foot .note { color: #A9C1E6; font-size: 15px; line-height: 1.7; }
 .btn-draw { min-height: 72px; padding: 0 44px; font-size: 26px; font-weight: 900; border-radius: 18px; }
+.draw-ctl { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; justify-content: flex-end; }
+.draw-count { display: flex; align-items: center; gap: 8px; color: #D6E3F5; font-size: 18px; font-weight: 700; }
+.draw-count button { width: 44px; height: 44px; border-radius: 12px; border: 1px solid #3B5A88; background: var(--navy-2); color: #fff; font-size: 22px; cursor: pointer; }
+.draw-count button:disabled { opacity: .35; cursor: default; }
+.draw-count input { width: 72px; height: 44px; border-radius: 12px; border: 1px solid #3B5A88; background: #fff; color: var(--navy);
+  font-size: 22px; font-weight: 800; text-align: center; }
+.draw-count .draw-all { width: auto; padding: 0 14px; font-size: 15px; background: none; }
+.tickets.many { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.tickets.many .ticket { min-height: 0; padding: 14px 16px 12px; border-radius: 16px; }
+.tickets.many .ticket::before, .tickets.many .ticket::after { top: 50px; width: 16px; height: 16px; }
+.tickets.many .ticket::before { left: -8px; }
+.tickets.many .ticket::after { right: -8px; }
+.tickets.many .ticket-name { font-size: 26px; margin: 6px 0 10px; min-height: 32px; }
+.tickets.many .ticket-mail { padding-top: 8px; font-size: 13px; }
+.tickets.many .ticket-next { min-height: 120px; }
+.tickets.many .ticket-next .q { font-size: 40px; }
 
 .flip-in { animation: flipIn .4s ease-out both; }
 .pop { animation: pop .32s cubic-bezier(.3, 1.6, .5, 1) both; }

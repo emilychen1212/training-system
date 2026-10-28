@@ -186,7 +186,8 @@ function admin_getRaffle(courseIdOrCode) {
   return { course: publicCourse_(c), raffle: raffleSummary_(c) };
 }
 
-function admin_draw(courseId, prizeName, sources) {
+/** count：一次抽幾位（預設 1，最多到這個獎項剩下的名額）；名單不夠時抽到用完為止 */
+function admin_draw(courseId, prizeName, sources, count) {
   return withLock_(function () {
     var c = findCourse_(courseId);
     if (c.status !== 'closed') throw new Error('請先「結束填答」，名單凍結後才能抽獎');
@@ -205,17 +206,39 @@ function admin_draw(courseId, prizeName, sources) {
     var eligible = pool.tickets.filter(function (t) { return chosen.indexOf(t.source) >= 0 && !pool.won[t.row.email]; });
     if (!eligible.length) throw new Error('勾選的名單裡已經沒有還沒中獎的人了');
 
-    var pick = eligible[Math.floor(Math.random() * eligible.length)];
-    updateRow_(table_(pick.sheet), pick.row, { prize: prize.name, drawn_at: now_('yyyy-MM-dd HH:mm:ss.SSS') });
+    var want = Math.max(1, Math.min(Math.floor(Number(count)) || 1, prize.qty - drawnCount));
+    var picks = [];
+    while (picks.length < want && eligible.length) {
+      var pick = eligible[Math.floor(Math.random() * eligible.length)];
+      picks.push(pick);
+      // 抽中的人在其他名單的籤也一起拿掉，同一次不會抽到同一人兩次
+      eligible = eligible.filter(function (t) { return t.row.email !== pick.row.email; });
+    }
+    // 名次靠抽出時間排序：每位差 1 毫秒，而且一定晚於這個獎項已抽出的人
+    var tz = Session.getScriptTimeZone();
+    function stamp(ms) { return Utilities.formatDate(new Date(ms), tz, 'yyyy-MM-dd HH:mm:ss.SSS'); }
+    var last = pool.tickets.reduce(function (m, t) { return t.row.prize === prize.name && t.row.drawn_at > m ? t.row.drawn_at : m; }, '');
+    var base = new Date().getTime();
+    for (var guard = 0; guard < 2000 && stamp(base) <= last; guard++) base++;
+    picks.forEach(function (p, k) {
+      updateRow_(table_(p.sheet), p.row, { prize: prize.name, drawn_at: stamp(base + k) });
+    });
     var courses = table_('courses');
     updateRow_(courses, rowById_(courses, c.course_id), { raffle_sources: JSON.stringify(chosen) });
     c.raffle_sources = JSON.stringify(chosen);
-    audit_('draw', c.course_id, prize.name + ' 第 ' + (drawnCount + 1) + ' 位（' + pool.labels[pick.source] + '）');
+    audit_('draw', c.course_id, picks.length === 1
+      ? prize.name + ' 第 ' + (drawnCount + 1) + ' 位（' + pool.labels[picks[0].source] + '）'
+      : prize.name + ' 一次抽出第 ' + (drawnCount + 1) + '～' + (drawnCount + picks.length) + ' 位');
 
+    var winners = picks.map(function (p, k) {
+      return { prize: prize.name, no: drawnCount + 1 + k, name: maskName_(p.row.name), email: maskEmail_(p.row.email) };
+    });
     return {
       course: c,
       raffle: raffleSummary_(c),
-      winner: { prize: prize.name, no: drawnCount + 1, name: maskName_(pick.row.name), email: maskEmail_(pick.row.email) }
+      winner: winners[0],
+      winners: winners,
+      short: want - picks.length
     };
   });
 }

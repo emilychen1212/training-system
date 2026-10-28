@@ -49,12 +49,14 @@ function seed() {
   const id = admin.admin_saveCourse({
     title: 'JoVE 實驗影片資料庫講習', date: today, start_time: '14:00', org_name: '○○大學 圖書館',
     org_type: '學校', location: '視聽教室 B1', product_tags: ['JoVE'], attendees: 42,
-    prizes: [{ name: '全家禮物卡 NT$100', qty: 5 }, { name: 'JoVE 限定帆布袋', qty: 3 }]
+    prizes: [{ name: '全家禮物卡 NT$100', qty: 20 }, { name: 'JoVE 限定帆布袋', qty: 3 }]
   }).detail.course.course_id;
   admin.admin_setStatus(id, 'open');
   const code = admin.findCourse_(id).survey_code;
   const people = [['王小明', 'mingwang@gmail.com'], ['陳怡伃', 'emily@ntu.edu.tw'], ['林志安', 'andy@yahoo.com.tw'],
     ['黃美婷', 'tina@gmail.com'], ['李大華', 'dahua@hospital.org'], ['張三', 'zhang3@gmail.com'], ['Amy', 'amy@school.edu']];
+  // 多一些人，才能試「一次抽 20 位」
+  '趙錢孫李周吳鄭王馮陳褚衛蔣沈韓楊朱秦尤許何呂施張'.split('').forEach((x, i) => people.push([x + '同學', 'student' + i + '@school.edu']));
   const roles = ['學生', '教師', '研究人員', '醫護人員', '圖書館員'];
   people.forEach((p, i) => {
     const r = JSON.parse(callPublic(JSON.stringify({ action: 'submitResponse', survey_code: code, elapsed: 30,

@@ -154,7 +154,7 @@ function runApiTests_(url, check) {
 
   var id = admin_saveCourse({
     title: '[自我測試] 請勿使用', date: now_('yyyy-MM-dd'), start_time: '09:00',
-    org_name: '測試', org_type: '其他', prizes: [{ name: '測試獎', qty: 3 }]
+    org_name: '測試', org_type: '其他', prizes: [{ name: '測試獎', qty: 3 }, { name: '一次抽獎', qty: 10 }]
   }).detail.course.course_id;
   var code = findCourse_(id).survey_code;
   try {
@@ -242,8 +242,9 @@ function runApiTests_(url, check) {
     check('結束後不能再填答', call({ action: 'submitResponse', survey_code: code, answers: good, elapsed: 10 }).error === 'CLOSED');
     check('課程結束後學習單也停止作答', wsCall({ name: '戊', email: 'v@test.com', answers: { q1: 'x' } }).error === 'CLOSED');
     check('沒勾名單不能抽', throws_(function () { admin_draw(id, '測試獎', []); }));
-    admin_draw(id, '測試獎', ['survey']);
-    admin_draw(id, '測試獎', ['survey']);
+    var two = admin_draw(id, '測試獎', ['survey'], 2);
+    check('一次抽 2 位：名次連號、不是同一人', two.winners.length === 2 && two.winners[0].no === 1 && two.winners[1].no === 2 &&
+      two.raffle.prizes[0].winners.length === 2 && two.winners[0].email !== two.winners[1].email);
     var third = admin_draw(id, '測試獎', ['ws:' + wsId]);
     check('可以只從學習單名單抽', third.raffle.prizes[0].winners[2].source.indexOf('學習單') === 0);
     var full;
@@ -255,13 +256,15 @@ function runApiTests_(url, check) {
       winEmails.every(function (e, i) { return winEmails.indexOf(e) === i; }), winEmails.join('、'));
     var again = admin_getRaffle(id).raffle;
     check('重新讀取只顯示已存結果', again.prizes[0].winners.length === 3);
+    var batch = admin_draw(id, '一次抽獎', ['survey', 'ws:' + wsId], 99);
+    check('一次抽：名單不夠時抽到用完為止，同一人只算一次', batch.winners.length === 1 && batch.short === 9, batch.winners.length + ' 位');
 
     admin_clearRaffle(id, '清除');
     check('清除後試算表沒有這堂課的姓名與 Email', countRows_('raffle_entries', id) === 0 &&
       table_('ws_responses').rows.filter(function (r) { return r.course_id === id && (r.name || r.email); }).length === 0);
     check('清除後學習單答案還在', table_('ws_responses').rows.filter(function (r) { return r.course_id === id && r.answers_json; }).length === 2);
     var after = findCourse_(id);
-    check('清除後保留登記人數與得獎人數', after.entry_count === 3 && after.winner_count === 3);
+    check('清除後保留登記人數與得獎人數', after.entry_count === 3 && after.winner_count === 4);
   } finally {
     removeTestCourse_(id);
   }
