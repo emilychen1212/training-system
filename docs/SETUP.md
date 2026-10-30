@@ -34,7 +34,7 @@
 4. 「檔案」旁邊的 **＋ → 指令碼**，命名 `Setup`，貼上 `gas-admin/Setup.gs`。
    再建兩個指令碼 `Templates`、`Worksheets`，分別貼上 `gas-admin/Templates.gs`、`gas-admin/Worksheets.gs`。
 5. **＋ → HTML**，命名 `Index`，貼上 `gas-admin/Index.html`。
-6. 同樣再建兩個 HTML：`Styles`（貼 `Styles.html`）、`Scripts`（貼 `Scripts.html`）。
+6. 同樣再建三個 HTML：`Styles`（貼 `Styles.html`）、`Scripts`（貼 `Scripts.html`）、`Logo`（貼 `Logo.html`，課程成果報告的 logo）。
 7. 左邊齒輪 **專案設定** → 勾選 **在編輯器中顯示「appsscript.json」資訊清單檔案**。
    回到編輯器，點 `appsscript.json`，全部換成 `gas-admin/appsscript.json` 的內容。
 8. 按 **Ctrl/⌘ + S** 存檔。

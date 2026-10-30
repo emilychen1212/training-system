@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>課程成果報告｜版型示意</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+/* 版型示意：資料是假的。實際報告在後台由課程資料產生，輸出 1920×1080 PNG */
+:root { --navy:#12305C; --blue:#1E5FB4; --soft:#E6EEF9; --ground:#F5F7FB; --line:#D9E2EF; --muted:#5A6B85; --orange:#F28A1E; --orange-ink:#B4560A; --green:#0A9E7C; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #C9D3E2; font-family: "Noto Sans TC", "PingFang TC", sans-serif; color: var(--navy); }
+.stage { width: 1920px; height: 1080px; transform-origin: 0 0; }
+.slide { width: 1920px; height: 1080px; background: #fff; padding: 56px 72px 40px; display: grid; grid-template-rows: auto auto 1fr auto; gap: 28px; position: relative; overflow: hidden; }
+.slide::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 14px; background: var(--navy); }
+
+.head { display: flex; justify-content: space-between; align-items: flex-start; gap: 40px; }
+.eyebrow { font-family: Outfit, sans-serif; font-weight: 700; font-size: 18px; letter-spacing: .22em; color: var(--orange-ink); margin-bottom: 10px; }
+h1 { margin: 0; font-size: 58px; font-weight: 900; line-height: 1.15; letter-spacing: .01em; }
+.meta { margin-top: 12px; font-size: 24px; color: var(--muted); display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.tag { font-size: 18px; font-weight: 700; color: var(--blue); background: var(--soft); border-radius: 999px; padding: 4px 16px; }
+.logo { width: 400px; margin-top: 8px; flex: none; }
+
+.kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 18px; }
+.kpi { border: 2px solid var(--line); border-radius: 18px; padding: 20px 24px 18px; }
+.kpi.hero { background: var(--navy); border-color: var(--navy); color: #fff; }
+.kpi .label { font-size: 19px; font-weight: 700; color: var(--muted); }
+.kpi.hero .label { color: #B9CBE6; }
+.kpi .value { font-family: Outfit, sans-serif; font-weight: 800; font-size: 64px; line-height: 1.05; margin-top: 6px; }
+.kpi .value small { font-family: "Noto Sans TC", sans-serif; font-size: 22px; font-weight: 700; margin-left: 6px; color: var(--muted); }
+.kpi.hero .value small { color: #B9CBE6; }
+.kpi .sub { font-size: 16px; color: var(--muted); margin-top: 2px; }
+.kpi.hero .sub { color: #B9CBE6; }
+
+.body { display: grid; grid-template-columns: 1fr 1fr 1.15fr; gap: 22px; min-height: 0; }
+.card { background: var(--ground); border-radius: 20px; padding: 26px 28px; display: flex; flex-direction: column; gap: 22px; min-height: 0; }
+.card h2 { margin: 0; font-size: 22px; font-weight: 900; display: flex; justify-content: space-between; align-items: baseline; }
+.card h2 span { font-size: 16px; font-weight: 500; color: var(--muted); }
+.q-label { font-size: 20px; font-weight: 700; line-height: 1.35; margin-bottom: 10px; }
+.q-label b { font-family: Outfit, sans-serif; color: var(--orange-ink); margin-right: 8px; }
+
+.rating { display: grid; grid-template-columns: 116px 1fr; gap: 18px; align-items: center; }
+.avg { font-family: Outfit, sans-serif; font-weight: 800; font-size: 60px; line-height: 1; color: var(--blue); }
+.avg small { display: block; font-family: "Noto Sans TC", sans-serif; font-size: 16px; font-weight: 500; color: var(--muted); margin-top: 6px; }
+.dist { display: grid; gap: 5px; }
+.dist-row { display: grid; grid-template-columns: 34px 1fr 64px; align-items: center; gap: 10px; font-size: 16px; color: var(--muted); }
+.dist-row .n { text-align: right; font-family: Outfit, sans-serif; font-weight: 700; color: var(--navy); }
+
+.bar { height: 14px; background: #fff; border-radius: 999px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--blue); border-radius: 999px; }
+.bar.top i { background: var(--orange); }
+
+.opts { display: grid; gap: 9px; }
+.opt { display: grid; grid-template-columns: 120px 1fr 96px; align-items: center; gap: 12px; font-size: 18px; }
+.opt .pct { text-align: right; font-family: Outfit, sans-serif; font-weight: 700; font-size: 20px; }
+.opt .pct small { font-size: 14px; color: var(--muted); font-weight: 600; margin-left: 4px; }
+
+.quotes { display: grid; gap: 14px; }
+.quote { background: #fff; border-radius: 14px; padding: 14px 18px 14px 22px; font-size: 19px; line-height: 1.55; position: relative; }
+.quote::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 5px; border-radius: 3px; background: var(--orange); }
+.ws { border-top: 2px dashed var(--line); padding-top: 18px; display: grid; gap: 10px; margin-top: auto; }
+.ws-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 19px; }
+.ws-row b { font-family: Outfit, sans-serif; font-size: 26px; }
+.ws-row b small { font-family: "Noto Sans TC", sans-serif; font-size: 16px; color: var(--muted); margin-left: 4px; }
+
+.foot { display: flex; justify-content: space-between; font-size: 16px; color: var(--muted); border-top: 2px solid var(--line); padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+<div class="slide">
+
+  <div class="head">
+    <div>
+      <div class="eyebrow">COURSE REPORT ・ 課程成果報告</div>
+      <h1>JoVE 實驗影片資料庫講習</h1>
+      <div class="meta">
+        <span>2026/10/30（五）14:00</span><span>·</span><span>○○大學 圖書館</span>
+        <span class="tag">JoVE</span>
+      </div>
+    </div>
+    <img class="logo" src="../../assets/flysheet-logo.jpg" alt="FlySheet Med-Informatics">
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><div class="label">實到人數</div><div class="value">42<small>人</small></div></div>
+    <div class="kpi"><div class="label">課後回饋</div><div class="value">36<small>份</small></div></div>
+    <div class="kpi"><div class="label">問卷回收率</div><div class="value">86<small>%</small></div></div>
+    <div class="kpi hero"><div class="label">整體滿意度</div><div class="value">4.7<small>/ 5</small></div><div class="sub">4–5 分占 94%</div></div>
+    <div class="kpi"><div class="label">課後會實際使用</div><div class="value">78<small>%</small></div></div>
+    <div class="kpi"><div class="label">學習單作答</div><div class="value">49<small>份</small></div><div class="sub">2 份學習單</div></div>
+  </div>
+
+  <div class="body">
+    <div class="card">
+      <h2>評分題 <span>1 分最低・5 分最高</span></h2>
+      <div>
+        <div class="q-label"><b>Q1</b>整體而言，您對本次課程的滿意度？</div>
+        <div class="rating">
+          <div class="avg">4.7<small>36 份回答</small></div>
+          <div class="dist">
+            <div class="dist-row"><span>5 分</span><div class="bar top"><i style="width:72%"></i></div><span class="n">26</span></div>
+            <div class="dist-row"><span>4 分</span><div class="bar"><i style="width:22%"></i></div><span class="n">8</span></div>
+            <div class="dist-row"><span>3 分</span><div class="bar"><i style="width:6%"></i></div><span class="n">2</span></div>
+            <div class="dist-row"><span>2 分</span><div class="bar"><i style="width:0"></i></div><span class="n">0</span></div>
+            <div class="dist-row"><span>1 分</span><div class="bar"><i style="width:0"></i></div><span class="n">0</span></div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="q-label"><b>Q2</b>本次介紹的資源，對您的學習或工作有幫助嗎？</div>
+        <div class="rating">
+          <div class="avg">4.6<small>36 份回答</small></div>
+          <div class="dist">
+            <div class="dist-row"><span>5 分</span><div class="bar top"><i style="width:64%"></i></div><span class="n">23</span></div>
+            <div class="dist-row"><span>4 分</span><div class="bar"><i style="width:31%"></i></div><span class="n">11</span></div>
+            <div class="dist-row"><span>3 分</span><div class="bar"><i style="width:6%"></i></div><span class="n">2</span></div>
+            <div class="dist-row"><span>2 分</span><div class="bar"><i style="width:0"></i></div><span class="n">0</span></div>
+            <div class="dist-row"><span>1 分</span><div class="bar"><i style="width:0"></i></div><span class="n">0</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>選擇題 <span>比例＝占回答人數</span></h2>
+      <div>
+        <div class="q-label"><b>Q3</b>課後您會實際使用這個資源嗎？</div>
+        <div class="opts">
+          <div class="opt"><span>會</span><div class="bar top"><i style="width:78%"></i></div><span class="pct">78%<small>28</small></span></div>
+          <div class="opt"><span>可能會</span><div class="bar"><i style="width:19%"></i></div><span class="pct">19%<small>7</small></span></div>
+          <div class="opt"><span>不會</span><div class="bar"><i style="width:3%"></i></div><span class="pct">3%<small>1</small></span></div>
+        </div>
+      </div>
+      <div>
+        <div class="q-label"><b>Q4</b>您的身分？</div>
+        <div class="opts">
+          <div class="opt"><span>學生</span><div class="bar top"><i style="width:56%"></i></div><span class="pct">56%<small>20</small></span></div>
+          <div class="opt"><span>研究人員</span><div class="bar"><i style="width:19%"></i></div><span class="pct">19%<small>7</small></span></div>
+          <div class="opt"><span>教師</span><div class="bar"><i style="width:11%"></i></div><span class="pct">11%<small>4</small></span></div>
+          <div class="opt"><span>醫護人員</span><div class="bar"><i style="width:8%"></i></div><span class="pct">8%<small>3</small></span></div>
+          <div class="opt"><span>其他</span><div class="bar"><i style="width:6%"></i></div><span class="pct">6%<small>2</small></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>學員回饋 <span>節錄 4 則／共 19 則</span></h2>
+      <div class="quotes">
+        <div class="quote">影片把實驗步驟拆得很清楚，回去做專題馬上就能用。</div>
+        <div class="quote">原來可以用關鍵字直接跳到影片章節，省下好多時間！</div>
+        <div class="quote">希望下次可以介紹怎麼把影片放進課堂教材。</div>
+        <div class="quote">講解節奏剛好，實際操作的時間很充足。</div>
+      </div>
+      <div class="ws">
+        <div class="ws-row"><span>學習單：JoVE 檢索練習</span><b>31<small>份</small></b></div>
+        <div class="ws-row"><span>學習單：課後作業－找一支影片</span><b>18<small>份</small></b></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>問卷為匿名填答；回收率＝課後回饋份數 ÷ 實到人數</span>
+    <span>飛資得講習站・2026/10/30 產生</span>
+  </div>
+
+</div>
+</div>
+<script>
+// 示意頁：依視窗寬度縮放整張 1920×1080
+function fit() { var s = Math.min(1, window.innerWidth / 1920); document.getElementById('stage').style.transform = 'scale(' + s + ')'; document.body.style.height = 1080 * s + 'px'; }
+window.addEventListener('resize', fit); fit();
+</script>
+</body>
+</html>

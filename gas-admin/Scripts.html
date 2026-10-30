@@ -719,6 +719,7 @@
   function openPanel(title, nodes, wide) {
     var dlg = document.getElementById('panelDialog');
     dlg.classList.toggle('wide', !!wide);
+    dlg.classList.toggle('report', wide === 'report');
     document.getElementById('panelTitle').textContent = title;
     fill(document.getElementById('panelBody'), nodes);
     if (!dlg.open) dlg.showModal();
@@ -1652,6 +1653,7 @@
         h('div', { class: 'row' }, h('h2', { text: '全部回饋（' + list.length + ' 份）' }),
           c.status === 'open' ? h('span', { class: 'note', text: '每 15 秒自動更新' }) : null),
         h('div', { class: 'row' },
+          h('button', { type: 'button', class: 'btn btn-sm btn-blue', text: '課程成果報告', disabled: d.loading || !list.length, onclick: openReport }),
           h('button', { type: 'button', class: 'btn btn-sm', text: '匯出回饋 CSV', disabled: !list.length, onclick: function () { exportResponses(d); } }),
           h('a', { class: 'btn btn-sm', href: S.data.responsesUrl, target: '_blank', rel: 'noopener', text: '在試算表中開啟' }))),
       d.loading ? h('div', { class: 'note', text: '載入中…' }) :
@@ -1750,6 +1752,520 @@
             return h('td', { class: q.type === 'rating' ? 'n' : q.type === 'text' ? 't' : '', text: t || '—' });
           }));
       }))));
+  }
+
+  // ---------- 課程成果報告（1920×1080 一頁圖，給客戶參考） ----------
+  // 全部在瀏覽器裡用 canvas 畫，資料不會送到任何外部服務。只放統計數字與講師勾選的文字回饋，沒有姓名、Email。
+
+  var RPT = { W: 1920, H: 1080, PAD: 72, navy: '#12305C', blue: '#1E5FB4', soft: '#E6EEF9', ground: '#F5F7FB',
+    line: '#D9E2EF', muted: '#5A6B85', orange: '#F28A1E', ink: '#B4560A', maxQuotes: 5 };
+  var CJK = '"Noto Sans TC", "PingFang TC", sans-serif';
+  var NUM = 'Outfit, "Noto Sans TC", sans-serif';
+
+  /** 學員回饋清單：所有文字題的回答，一字不差的合併成一則（記下幾人寫的），新的在前；勾選與改短的內容留到換課為止 */
+  function reportPicks(d) {
+    var id = d.course.course_id;
+    if (S.rep && S.rep.courseId === id) return S.rep;
+    var items = [], seen = {}, total = 0;
+    d.questions.filter(function (q) { return q.type === 'text'; }).forEach(function (q) {
+      d.responses.forEach(function (r) {
+        var t = String(r.answers[q.id] || '').trim();
+        if (!t) return;
+        total++;
+        if (seen[t]) { seen[t].same++; return; }
+        seen[t] = { q: q.label, orig: t, text: t, on: false, at: r.submitted_at, same: 1 };
+        items.push(seen[t]);
+      });
+    });
+    items.sort(function (a, b) { return b.same - a.same || b.at.localeCompare(a.at); });
+    S.rep = { courseId: id, items: items, total: total };
+    return S.rep;
+  }
+
+  function openReport() {
+    var d = S.detail;
+    var rep = reportPicks(d);
+    var canvas = h('canvas', { width: RPT.W, height: RPT.H, class: 'report-canvas', role: 'img', 'aria-label': '課程成果報告預覽' });
+    var count = h('span', { class: 'note' });
+    var timer = null;
+    function redraw() {
+      clearTimeout(timer);
+      timer = setTimeout(function () { drawReport(canvas, d, rep); }, 120);
+      var on = rep.items.filter(function (x) { return x.on; }).length;
+      count.textContent = '已選 ' + on + ' / ' + RPT.maxQuotes + ' 則';
+    }
+    var list = rep.items.map(function (x) {
+      var box = h('input', { type: 'checkbox', 'aria-label': '放進報告' });
+      box.checked = x.on;
+      var area = h('textarea', { class: 'input', rows: '2', maxlength: '120', disabled: !x.on });
+      area.value = x.text;
+      box.addEventListener('change', function () {
+        if (box.checked && rep.items.filter(function (y) { return y.on; }).length >= RPT.maxQuotes) {
+          box.checked = false;
+          toast('最多放 ' + RPT.maxQuotes + ' 則，先取消其他則', true);
+          return;
+        }
+        x.on = box.checked;
+        area.disabled = !x.on;
+        if (x.on) area.focus();
+        redraw();
+      });
+      area.addEventListener('input', function () { x.text = area.value; redraw(); });
+      return h('div', { class: 'rpt-item' }, box,
+        h('div', { class: 'grow' }, area,
+          h('div', { class: 'note', text: (x.same > 1 ? x.same + ' 人寫了一樣的內容・' : '') + x.q + '・' + x.at.slice(5, 16) })));
+    });
+    openPanel('課程成果報告', [
+      h('div', { class: 'report-preview' }, canvas),
+      h('div', { class: 'row' },
+        h('button', { type: 'button', class: 'btn btn-blue', text: '下載圖片（PNG）', onclick: function () {
+          drawReport(canvas, d, rep).then(function () {
+            download('課程成果報告_' + d.course.date + '_' + fileSafe(d.course.title) + '.png', canvas.toDataURL('image/png'));
+          });
+        } }),
+        h('span', { class: 'note', text: '1920×1080，可以直接放進簡報。報告裡沒有任何姓名或 Email。' })),
+      h('div', { class: 'card-head', style: 'margin-top:8px' }, h('h2', { text: '學員回饋' }), count),
+      rep.items.length
+        ? [h('div', { class: 'note', text: '勾選要放進報告的回饋（最多 ' + RPT.maxQuotes + ' 則），可以直接改短；只改報告上的文字，原始回饋不會變。給客戶看之前，記得確認沒有寫到人名或個人資料。' }),
+          h('div', { class: 'rpt-list' }, list)]
+        : h('div', { class: 'note', text: '這堂課的問卷沒有文字回饋。' })
+    ], 'report');
+    redraw();
+  }
+
+  /** 報告要用的數字：統一在這裡算好，畫圖的部分只管排版 */
+  function reportData(d, rep) {
+    var c = d.course;
+    var list = d.responses;
+    function answeredOf(q) {
+      return list.filter(function (r) { var v = r.answers[q.id]; return v !== undefined && v !== '' && !(Array.isArray(v) && !v.length); });
+    }
+    var blocks = d.questions.filter(function (q) { return q.type !== 'text'; }).map(function (q) {
+      var ans = answeredOf(q);
+      var n = ans.length;
+      var b = { q: q, no: d.questions.indexOf(q) + 1, n: n, type: q.type };
+      if (q.type === 'rank') {
+        var k = q.options.length;
+        b.rows = q.options.map(function (o) {
+          var sum = 0;
+          ans.forEach(function (r) { sum += r.answers[q.id].indexOf(o) + 1; });
+          var avg = n ? sum / n : 0;
+          return { label: o, value: n ? '平均第 ' + avg.toFixed(1) + ' 名' : '—', ratio: n && k > 1 ? (k - avg) / (k - 1) : 0, avg: avg };
+        }).sort(function (a, b2) { return a.avg - b2.avg; });
+        b.rows.forEach(function (r, j) { r.label = (j + 1) + '. ' + r.label; r.top = j === 0 && n > 0; });
+        return b;
+      }
+      var opts = q.type === 'rating' ? ['5', '4', '3', '2', '1'] : q.type === 'yesno' ? ['是', '否'] : q.options;
+      var counts = opts.map(function (o) {
+        return ans.filter(function (r) { var v = r.answers[q.id]; return Array.isArray(v) ? v.indexOf(o) >= 0 : String(v) === o; }).length;
+      });
+      var top = Math.max.apply(null, counts.concat(1));
+      b.rows = opts.map(function (o, j) {
+        return { label: q.type === 'rating' ? o + ' 分' : o, count: counts[j], pct: n ? Math.round(counts[j] / n * 100) : 0,
+          ratio: n ? counts[j] / n : 0, top: counts[j] === top && counts[j] > 0 };
+      });
+      if (q.type === 'rating') {
+        b.avg = n ? ans.reduce(function (s, r) { return s + Number(r.answers[q.id]); }, 0) / n : null;
+        b.high = n ? Math.round((counts[0] + counts[1]) / n * 100) : null;
+      } else if (b.rows.length > 7) {
+        // 選項太多：照人數留前 6 個，其餘合併
+        var sorted = b.rows.slice().sort(function (x, y) { return y.count - x.count; });
+        var rest = sorted.slice(6);
+        b.rows = sorted.slice(0, 6);
+        b.more = rest.length;
+      }
+      return b;
+    });
+
+    var sat = blocks.filter(function (b) { return b.q.id === 'q1' && b.type === 'rating'; })[0] ||
+      blocks.filter(function (b) { return b.type === 'rating'; })[0];
+    var use = blocks.filter(function (b) { return b.q.id === 'q3' && b.type === 'single' && b.q.options.indexOf('會') >= 0; })[0];
+    var ws = (d.worksheets || []).filter(function (w) { return w.count > 0; });
+    var wsTotal = ws.reduce(function (s, w) { return s + w.count; }, 0);
+    var hasAtt = c.attendees !== '' && c.attendees > 0;
+
+    var kpis = [];
+    if (hasAtt) kpis.push({ label: '實到人數', value: String(c.attendees), unit: '人' });
+    kpis.push({ label: '課後回饋', value: String(list.length), unit: '份' });
+    if (hasAtt) kpis.push({ label: '問卷回收率', value: String(Math.round(list.length / c.attendees * 100)), unit: '%' });
+    if (sat && sat.n) kpis.push({ label: sat.q.id === 'q1' ? '整體滿意度' : '平均評分', value: sat.avg.toFixed(1), unit: '/ 5', hero: true,
+      sub: '4–5 分占 ' + sat.high + '%' });
+    if (use && use.n) kpis.push({ label: '課後會實際使用', value: String(use.rows[0].pct), unit: '%' });
+    if (wsTotal) kpis.push({ label: '學習單作答', value: String(wsTotal), unit: '份', sub: ws.length > 1 ? ws.length + ' 份學習單' : '' });
+
+    var p = c.date.split('-');
+    var day = '日一二三四五六'.charAt(new Date(+p[0], +p[1] - 1, +p[2]).getDay());
+    var today = new Date();
+    return {
+      title: c.title,
+      meta: [p.join('/') + '（' + day + '）' + (c.start_time ? ' ' + c.start_time : ''), c.org_name].filter(Boolean),
+      tags: c.product_tags,
+      kpis: kpis,
+      blocks: blocks,
+      quotes: rep.items.filter(function (x) { return x.on && x.text.trim(); }).map(function (x) { return x.text.trim(); }),
+      quoteTotal: rep.total,
+      worksheets: ws.map(function (w) { return { title: w.title, count: w.count }; }),
+      foot: '問卷為匿名填答' + (hasAtt ? '；回收率＝課後回饋份數 ÷ 實到人數' : ''),
+      stamp: '飛資得講習站・' + today.getFullYear() + '/' + pad2(today.getMonth() + 1) + '/' + pad2(today.getDate()) + ' 產生'
+    };
+  }
+
+  /** 先等字型與 logo 載好再畫，不然第一張圖會是系統字型 */
+  function reportAssets(text) {
+    if (!S.repAssets) {
+      S.repAssets = new Promise(function (resolve) {
+        var img = new Image();
+        img.onload = function () { resolve(img); };
+        img.onerror = function () { resolve(null); };
+        img.src = window.FLYSHEET_LOGO || '';
+      });
+    }
+    var fonts = document.fonts ? Promise.all(['400', '500', '700', '900'].map(function (w) {
+      return document.fonts.load(w + ' 20px "Noto Sans TC"', text);
+    }).concat(['700', '800'].map(function (w) { return document.fonts.load(w + ' 20px Outfit', '0123456789./%'); })))
+      .catch(function () {}) : Promise.resolve();
+    return Promise.all([S.repAssets, fonts]).then(function (r) { return r[0]; });
+  }
+
+  function drawReport(canvas, d, rep) {
+    var data = reportData(d, rep);
+    var text = JSON.stringify(data) + '學員回饋節錄則共評分題選擇題問卷統計分最低最高比例占回答人數排序題平均第名其他項學習單份';
+    return reportAssets(text).then(function (logo) {
+      paintReport(canvas.getContext('2d'), data, logo);
+    });
+  }
+
+  function paintReport(ctx, data, logo) {
+    var W = RPT.W, H = RPT.H, PAD = RPT.PAD;
+    ctx.save();
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = RPT.navy;
+    ctx.fillRect(0, 0, 14, H);
+    ctx.textBaseline = 'alphabetic';
+
+    // 標題區
+    var logoW = 400, logoH = logo ? logoW * logo.height / logo.width : 0;
+    if (logo) ctx.drawImage(logo, W - PAD - logoW, 64, logoW, logoH);
+    var titleMax = W - PAD * 2 - logoW - 40;
+    font(ctx, 700, 18, CJK);
+    ctx.fillStyle = RPT.ink;
+    ctx.fillText('COURSE REPORT ・ 課程成果報告', PAD, 76);
+    font(ctx, 900, 58, CJK);
+    var size = 58;
+    while (size > 40 && ctx.measureText(data.title).width > titleMax) { size -= 2; font(ctx, 900, size, CJK); }
+    ctx.fillStyle = RPT.navy;
+    ctx.fillText(ellipsis(ctx, data.title, titleMax), PAD, 150);
+    font(ctx, 400, 24, CJK);
+    ctx.fillStyle = RPT.muted;
+    var x = PAD;
+    data.meta.forEach(function (m, i) {
+      if (i) { ctx.fillText('·', x + 6, 197); x += 30; }
+      ctx.fillText(m, x, 197);
+      x += ctx.measureText(m).width;
+    });
+    x += 18;
+    font(ctx, 700, 18, CJK);
+    data.tags.forEach(function (t) {
+      var w = ctx.measureText(t).width + 32;
+      if (x + w > titleMax + PAD) return;
+      rrect(ctx, x, 172, w, 34, 17, RPT.soft);
+      ctx.fillStyle = RPT.blue;
+      ctx.fillText(t, x + 16, 196);
+      x += w + 10;
+    });
+
+    // 重點數字
+    var ky = 234, kh = 166, gap = 18;
+    var kw = (W - PAD * 2 - gap * (data.kpis.length - 1)) / data.kpis.length;
+    data.kpis.forEach(function (k, i) {
+      var kx = PAD + i * (kw + gap);
+      if (k.hero) rrect(ctx, kx, ky, kw, kh, 18, RPT.navy);
+      else strokeRect(ctx, kx, ky, kw, kh, 18, RPT.line);
+      font(ctx, 700, 19, CJK);
+      ctx.fillStyle = k.hero ? '#B9CBE6' : RPT.muted;
+      ctx.fillText(k.label, kx + 26, ky + 42);
+      font(ctx, 800, 64, NUM);
+      ctx.fillStyle = k.hero ? '#FFFFFF' : RPT.navy;
+      ctx.fillText(k.value, kx + 24, ky + 112);
+      var vw = ctx.measureText(k.value).width;
+      font(ctx, 700, 22, CJK);
+      ctx.fillStyle = k.hero ? '#B9CBE6' : RPT.muted;
+      ctx.fillText(k.unit, kx + 30 + vw, ky + 110);
+      if (k.sub) {
+        font(ctx, 400, 16, CJK);
+        ctx.fillText(k.sub, kx + 26, ky + 144);
+      }
+    });
+
+    // 下方：問卷各題（左邊 1～3 欄）＋學員回饋與學習單（右邊）
+    var by = 430, bh = 540, cg = 22;
+    var right = data.quotes.length || data.worksheets.length;
+    var inner = W - PAD * 2;
+    var rw = right ? Math.round((inner - cg * 2) * 1.15 / 3.15) : 0;
+    var leftW = inner - (right ? rw + cg : 0);
+    var cols = data.blocks.length ? partition(data.blocks, right ? 2 : 3, leftW) : [];
+    var cw = cols.length ? (leftW - cg * (cols.length - 1)) / cols.length : 0;
+    cols.forEach(function (col, i) {
+      var cx = PAD + i * (cw + cg);
+      rrect(ctx, cx, by, cw, bh, 20, RPT.ground);
+      var allRating = col.every(function (b) { return b.type === 'rating'; });
+      var allChoice = col.every(function (b) { return b.type !== 'rating' && b.type !== 'rank'; });
+      cardTitle(ctx, cx, by, cw, allRating ? '評分題' : allChoice ? '選擇題' : '問卷統計',
+        allRating ? '1 分最低・5 分最高' : allChoice ? '比例＝占回答人數' : '');
+      var avail = bh - 92;
+      var need = col.reduce(function (s, b) { return s + blockHeight(ctx, b, cw - 56); }, 0) + 22 * (col.length - 1);
+      var sc = Math.min(1, avail / need);
+      ctx.save();
+      ctx.translate(cx + 28, by + 80);
+      ctx.scale(sc, sc);
+      var y = 0;
+      col.forEach(function (b) {
+        drawBlock(ctx, b, (cw - 56) / sc, y);
+        y += blockHeight(ctx, b, (cw - 56) / sc) + 22;
+      });
+      ctx.restore();
+    });
+    if (right) {
+      var rx = PAD + inner - rw;
+      rrect(ctx, rx, by, rw, bh, 20, RPT.ground);
+      drawRight(ctx, data, rx, by, rw, bh);
+    }
+
+    // 頁尾
+    ctx.fillStyle = RPT.line;
+    ctx.fillRect(PAD, 1000, inner, 2);
+    font(ctx, 400, 16, CJK);
+    ctx.fillStyle = RPT.muted;
+    ctx.fillText(data.foot, PAD, 1036);
+    ctx.textAlign = 'right';
+    ctx.fillText(data.stamp, W - PAD, 1036);
+    ctx.textAlign = 'left';
+    ctx.restore();
+  }
+
+  /**
+   * 題目依序分到幾欄：用最少的欄數放得下（不用縮小字），同一欄盡量是同一類題目（評分題／選擇題），
+   * 再來讓最高的那欄盡量矮。都放不下時用最多欄，畫的時候再整欄等比例縮小。
+   */
+  function partition(blocks, maxCols, width) {
+    var ctx = document.createElement('canvas').getContext('2d');
+    var avail = 540 - 92 + 22;
+    var kind = function (b) { return b.type === 'rating' ? 'r' : b.type === 'rank' ? 'k' : 'c'; };
+    var pick = null;
+    for (var n = 1; n <= Math.min(maxCols, blocks.length); n++) {
+      var cw = (width - 22 * (n - 1)) / n - 56;
+      var hs = blocks.map(function (b) { return blockHeight(ctx, b, cw) + 22; });
+      var best = null;
+      (function split(start, left, acc) {
+        if (left === 1) {
+          var cuts = acc.concat([[start, blocks.length]]);
+          var tall = Math.max.apply(null, cuts.map(function (k) { return hs.slice(k[0], k[1]).reduce(function (a, v) { return a + v; }, 0); }));
+          var mixed = cuts.filter(function (k) {
+            return blocks.slice(k[0], k[1]).some(function (b) { return kind(b) !== kind(blocks[k[0]]); });
+          }).length;
+          var fits = tall <= avail;
+          if (!best || (fits && !best.fits) || (fits === best.fits && (fits ? mixed < best.mixed || (mixed === best.mixed && tall < best.tall) : tall < best.tall))) {
+            best = { tall: tall, mixed: mixed, fits: fits, cuts: cuts };
+          }
+          return;
+        }
+        for (var end = start + 1; end <= blocks.length - left + 1; end++) split(end, left - 1, acc.concat([[start, end]]));
+      })(0, n, []);
+      pick = best;
+      if (best.fits) break;
+    }
+    return pick.cuts.map(function (k) { return blocks.slice(k[0], k[1]); });
+  }
+
+  function blockHeight(ctx, b, w) {
+    font(ctx, 700, 20, CJK);
+    var lines = Math.min(2, wrapLines(ctx, b.q.label, w - 48).length);
+    var head = lines * 28 + 12;
+    if (b.type === 'rating') return head + 5 * 29;
+    return head + b.rows.length * 35 + (b.more ? 26 : 0);
+  }
+
+  function drawBlock(ctx, b, w, y) {
+    font(ctx, 800, 20, NUM);
+    ctx.fillStyle = RPT.ink;
+    ctx.fillText('Q' + b.no, 0, y + 22);
+    font(ctx, 700, 20, CJK);
+    ctx.fillStyle = RPT.navy;
+    var lines = wrapLines(ctx, b.q.label, w - 48);
+    if (lines.length > 2) lines = [lines[0], ellipsis(ctx, lines.slice(1).join(''), w - 48)];
+    lines.forEach(function (l, i) { ctx.fillText(l, 46, y + 22 + i * 28); });
+    var top = y + lines.length * 28 + 12;
+
+    if (b.type === 'rating') {
+      font(ctx, 800, 60, NUM);
+      ctx.fillStyle = RPT.blue;
+      ctx.fillText(b.avg === null ? '—' : b.avg.toFixed(1), 0, top + 76);
+      font(ctx, 500, 16, CJK);
+      ctx.fillStyle = RPT.muted;
+      ctx.fillText(b.n + ' 份回答', 0, top + 108);
+      var bx = 134, numW = 54;
+      b.rows.forEach(function (r, i) {
+        var ry = top + i * 29;
+        font(ctx, 400, 16, CJK);
+        ctx.fillStyle = RPT.muted;
+        ctx.fillText(r.label, bx, ry + 18);
+        bar(ctx, bx + 44, ry + 6, w - bx - 44 - numW, r.ratio, r.top);
+        font(ctx, 700, 16, NUM);
+        ctx.fillStyle = RPT.navy;
+        ctx.textAlign = 'right';
+        ctx.fillText(String(r.count), w, ry + 18);
+        ctx.textAlign = 'left';
+      });
+      return;
+    }
+    var labelW = Math.min(w * 0.36, 180), valW = b.type === 'rank' ? 150 : 100;
+    b.rows.forEach(function (r, i) {
+      var ry = top + i * 35;
+      font(ctx, 400, 18, CJK);
+      ctx.fillStyle = RPT.navy;
+      ctx.fillText(ellipsis(ctx, r.label, labelW - 10), 0, ry + 20);
+      bar(ctx, labelW, ry + 8, w - labelW - valW - 12, r.ratio, r.top);
+      ctx.textAlign = 'right';
+      if (b.type === 'rank') {
+        font(ctx, 700, 17, CJK);
+        ctx.fillStyle = RPT.navy;
+        ctx.fillText(r.value, w, ry + 20);
+      } else {
+        font(ctx, 600, 14, NUM);
+        ctx.fillStyle = RPT.muted;
+        var cnt = String(r.count);
+        ctx.fillText(cnt, w, ry + 20);
+        var cntW = ctx.measureText(cnt).width;
+        font(ctx, 700, 20, NUM);
+        ctx.fillStyle = RPT.navy;
+        ctx.fillText(r.pct + '%', w - cntW - 6, ry + 20);
+      }
+      ctx.textAlign = 'left';
+    });
+    if (b.more) {
+      font(ctx, 400, 16, CJK);
+      ctx.fillStyle = RPT.muted;
+      ctx.fillText('其他 ' + b.more + ' 項未列出', 0, top + b.rows.length * 35 + 16);
+    }
+  }
+
+  function drawRight(ctx, data, x, y, w, h) {
+    var inX = x + 28, inW = w - 56;
+    var wsH = data.worksheets.length ? 34 + Math.min(4, data.worksheets.length) * 42 + (data.worksheets.length > 4 ? 30 : 0) : 0;
+    if (data.quotes.length) {
+      cardTitle(ctx, x, y, w, '學員回饋', '節錄 ' + data.quotes.length + ' 則／共 ' + data.quoteTotal + ' 則');
+      var qy = y + 78, bottom = y + h - 26 - wsH;
+      font(ctx, 400, 19, CJK);
+      data.quotes.forEach(function (q) {
+        var lines = wrapLines(ctx, q, inW - 40);
+        if (lines.length > 3) lines = [lines[0], lines[1], ellipsis(ctx, lines.slice(2).join(''), inW - 40)];
+        var qh = lines.length * 29 + 26;
+        if (qy + qh > bottom) return;
+        rrect(ctx, inX, qy, inW, qh, 14, '#FFFFFF');
+        rrect(ctx, inX, qy + 14, 5, qh - 28, 3, RPT.orange);
+        font(ctx, 400, 19, CJK);
+        ctx.fillStyle = RPT.navy;
+        lines.forEach(function (l, i) { ctx.fillText(l, inX + 22, qy + 33 + i * 29); });
+        qy += qh + 14;
+      });
+    } else {
+      cardTitle(ctx, x, y, w, '學習單', '作答份數');
+    }
+    if (!data.worksheets.length) return;
+    var wy = data.quotes.length ? y + h - 26 - wsH : y + 78;
+    if (data.quotes.length) dashed(ctx, inX, wy, inW);
+    var shown = data.worksheets.slice(0, 4);
+    shown.forEach(function (ws, i) {
+      var ly = wy + 46 + i * 42;
+      font(ctx, 400, 19, CJK);
+      ctx.fillStyle = RPT.navy;
+      ctx.fillText(ellipsis(ctx, '學習單：' + ws.title, inW - 110), inX, ly);
+      font(ctx, 500, 16, CJK);
+      ctx.fillStyle = RPT.muted;
+      ctx.textAlign = 'right';
+      ctx.fillText('份', inX + inW, ly);
+      font(ctx, 800, 26, NUM);
+      ctx.fillStyle = RPT.navy;
+      ctx.fillText(String(ws.count), inX + inW - 22, ly + 1);
+      ctx.textAlign = 'left';
+    });
+    if (data.worksheets.length > 4) {
+      font(ctx, 400, 16, CJK);
+      ctx.fillStyle = RPT.muted;
+      ctx.fillText('另有 ' + (data.worksheets.length - 4) + ' 份學習單', inX, wy + 46 + 4 * 42);
+    }
+  }
+
+  function cardTitle(ctx, x, y, w, title, note) {
+    font(ctx, 900, 22, CJK);
+    ctx.fillStyle = RPT.navy;
+    ctx.fillText(title, x + 28, y + 48);
+    if (!note) return;
+    font(ctx, 500, 16, CJK);
+    ctx.fillStyle = RPT.muted;
+    ctx.textAlign = 'right';
+    ctx.fillText(note, x + w - 28, y + 48);
+    ctx.textAlign = 'left';
+  }
+
+  function font(ctx, weight, size, family) { ctx.font = weight + ' ' + size + 'px ' + family; }
+
+  function bar(ctx, x, y, w, ratio, top) {
+    rrect(ctx, x, y, w, 14, 7, '#FFFFFF');
+    if (ratio > 0) rrect(ctx, x, y, Math.max(14, w * ratio), 14, 7, top ? RPT.orange : RPT.blue);
+  }
+
+  function rrect(ctx, x, y, w, h, r, fill) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+
+  function strokeRect(ctx, x, y, w, h, r, color) {
+    rrect(ctx, x + 1, y + 1, w - 2, h - 2, r, '#FFFFFF');
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+  }
+
+  function dashed(ctx, x, y, w) {
+    ctx.save();
+    ctx.setLineDash([8, 6]);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = RPT.line;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + w, y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** 換行：中文一個字一個字斷，英文、數字整個字一起斷 */
+  function wrapLines(ctx, text, width) {
+    var tokens = String(text).replace(/\s+/g, ' ').match(/[A-Za-z0-9@._%+\-\/:#&']+|\s|./g) || [];
+    var lines = [], line = '';
+    tokens.forEach(function (t) {
+      if (ctx.measureText(line + t).width <= width || !line) { line += t; return; }
+      lines.push(line.replace(/\s+$/, ''));
+      line = t === ' ' ? '' : t;
+    });
+    if (line) lines.push(line);
+    return lines;
+  }
+
+  function ellipsis(ctx, text, width) {
+    if (ctx.measureText(text).width <= width) return text;
+    var chars = Array.from(text);
+    while (chars.length && ctx.measureText(chars.join('') + '…').width > width) chars.pop();
+    return chars.join('') + '…';
   }
 
   /** 這堂課的匿名回饋：一題一欄，沒有姓名與 Email（回覆本來就沒有存） */
