@@ -50,6 +50,12 @@ function include(name) {
 function admin_bootstrap() {
   var ss = SpreadsheetApp.getActive();
   var courses = listCourses_();
+  // 有設作答截止時間的學習單：30 天清除提醒從最晚的截止日開始算
+  var dues = {};
+  table_('worksheets').rows.forEach(function (w) {
+    var d = wsDue_(w).slice(0, 10);
+    if (w.course_id && d > (dues[w.course_id] || '')) dues[w.course_id] = d;
+  });
   var tags = DEFAULT_TAGS.slice();
   courses.forEach(function (c) {
     c.product_tags.forEach(function (tag) { if (tags.indexOf(tag) < 0) tags.push(tag); });
@@ -63,7 +69,7 @@ function admin_bootstrap() {
     courses: courses,
     templates: templatesSummary_(),
     worksheets: worksheetsSummary_(),
-    reminders: courses.filter(needsCleanup_).map(function (c) {
+    reminders: courses.filter(function (c) { return needsCleanup_(c, dues[c.course_id]); }).map(function (c) {
       return { course_id: c.course_id, title: c.title, date: c.date, entries: c.entry_count };
     })
   };
@@ -198,6 +204,9 @@ function admin_draw(courseId, prizeName, sources, count) {
     var pool = rafflePool_(c);
     var keys = pool.sources.map(function (s) { return s.key; });
     var chosen = (Array.isArray(sources) ? sources : []).filter(function (k) { return keys.indexOf(k) >= 0; });
+    pool.sources.forEach(function (s) {
+      if (s.due && chosen.indexOf(s.key) >= 0) throw new Error('「' + s.label + '」還在收作答（到 ' + s.due + '），截止後才能抽');
+    });
     if (!chosen.length) throw new Error('請至少勾選一份抽獎名單');
 
     var drawnCount = pool.tickets.filter(function (t) { return t.row.prize === prize.name; }).length;
@@ -269,6 +278,11 @@ function admin_clearRaffle(courseId, confirmText) {
     var c = rowById_(courses, courseId);
     if (c.status !== 'closed') throw new Error('請先結束填答，再清除抽獎資料');
     if (c.raffle_cleared_at) throw new Error('這堂課已經清除過了');
+    table_('worksheets').rows.forEach(function (w) {
+      if (w.course_id === c.course_id && wsCollecting_(w)) {
+        throw new Error('學習單「' + w.title + '」還在收作答（到 ' + wsDue_(w) + '），截止後才能清除，不然之後交的人的姓名不會被清掉');
+      }
+    });
     var t = table_('raffle_entries');
     var mine = t.rows.filter(function (r) { return r.course_id === c.course_id; });
     var ws = table_('ws_responses');
@@ -376,9 +390,10 @@ function rafflePool_(c) {
       if (r.course_id === c.course_id) tickets.push({ source: 'survey', sheet: 'raffle_entries', row: r, at: r.created_at });
     });
   }
-  var titles = {};
+  var titles = {}, collecting = {};
   table_('worksheets').rows.forEach(function (w) {
     titles[w.ws_id] = w.title;
+    if (w.course_id === c.course_id && wsCollecting_(w)) collecting['ws:' + w.ws_id] = wsDue_(w);
     if (w.course_id === c.course_id) addKey('ws:' + w.ws_id);
   });
   table_('ws_responses').rows.forEach(function (r) {
@@ -395,7 +410,8 @@ function rafflePool_(c) {
   tickets.forEach(function (t) { if (t.row.prize) won[t.row.email] = true; });
   var sources = keys.map(function (k) {
     var mine = tickets.filter(function (t) { return t.source === k; });
-    return { key: k, label: labels[k], total: mine.length,
+    // due：這份學習單還在收作答（回家作業），截止前不能拿來抽
+    return { key: k, label: labels[k], total: mine.length, due: collecting[k] || '',
       eligible: mine.filter(function (t) { return !won[t.row.email]; }).length };
   });
   return { tickets: tickets, won: won, labels: labels, sources: sources };
@@ -411,7 +427,7 @@ function raffleSummary_(c) {
       });
     return { name: p.name, qty: p.qty, winners: winners };
   });
-  var keys = pool.sources.map(function (s) { return s.key; });
+  var keys = pool.sources.filter(function (s) { return !s.due; }).map(function (s) { return s.key; });
   var selected = parseJson_(c.raffle_sources, ['survey']).filter(function (k) { return keys.indexOf(k) >= 0; });
   var surveyCount = pool.tickets.filter(function (t) { return t.source === 'survey'; }).length;
   var winnerCount = pool.tickets.filter(function (t) { return t.row.prize; }).length;
@@ -427,9 +443,9 @@ function raffleSummary_(c) {
   };
 }
 
-function needsCleanup_(c) {
+function needsCleanup_(c, lastDue) {
   if (c.raffle_cleared_at || !c.live_entries) return false;
-  var limit = new Date(c.date + 'T00:00:00');
+  var limit = new Date((lastDue && lastDue > c.date ? lastDue : c.date) + 'T00:00:00');
   limit.setDate(limit.getDate() + RAFFLE_KEEP_DAYS);
   return new Date() > limit;
 }

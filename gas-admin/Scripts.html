@@ -1118,9 +1118,16 @@
   /** 學習單列表與編輯頁共用：連到課程的選單、開放／關閉按鈕、複製連結與下載 QR */
   function wsCourseSelect(w) {
     var linked = courseById(w.course_id);
+    var list = (linked && linked.status === 'closed' ? [linked] : []).concat(linkableCourses());
+    // 回家作業（設了截止時間、還在收）可以連到已結束、還沒清除抽獎資料的課
+    if (wsCollecting(w)) {
+      list = list.concat(S.data.courses.filter(function (c) {
+        return c.status === 'closed' && !c.raffle_cleared_at && list.indexOf(c) < 0;
+      }).sort(function (a, b) { return b.date.localeCompare(a.date); }).slice(0, 20));
+    }
     var sel = h('select', { class: 'input', 'aria-label': '連到課程' },
       h('option', { value: '', text: '— 還沒連到課程 —' }),
-      (linked && linked.status === 'closed' ? [linked] : []).concat(linkableCourses()).map(function (c) {
+      list.map(function (c) {
         return h('option', { value: c.course_id, selected: c.course_id === w.course_id,
           text: c.date.slice(5).replace('-', '/') + '　' + c.title + (c.status === 'closed' ? '（已結束）' : '') });
       }));
@@ -1132,6 +1139,28 @@
     return h('button', { type: 'button', class: open ? 'btn btn-sm' : cls || 'btn btn-sm', text: open ? '關閉作答' : '開放作答',
       onclick: function () { setWorksheetStatus(w, open ? 'closed' : 'open'); } });
   }
+  function nowMinute() { var d = new Date(); return ymd(d) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()); }
+  function dueText(d) { return d.slice(5, 10).replace('-', '/') + ' ' + d.slice(11, 16); }
+  /** 開放中、設了作答截止時間、還沒到期（回家作業）：課程結束後也照收 */
+  function wsCollecting(w) { return w.status === 'open' && !!w.due_at && nowMinute() <= w.due_at; }
+
+  /** 作答截止時間：回家作業用，設了之後課程結束也照收，時間到自動停止 */
+  function wsDueField(w) {
+    var input = h('input', { class: 'input', type: 'datetime-local', 'aria-label': '作答截止時間', style: 'max-width:240px' });
+    if (w.due_at) input.value = w.due_at.replace(' ', 'T');
+    var save = h('button', { type: 'button', class: 'btn btn-sm', text: w.due_at ? '更新截止時間' : '設定截止時間', onclick: function () {
+      if (!input.value) { toast('請先選日期和時間'); input.focus(); return; }
+      setWorksheetDue(w, input.value);
+    } });
+    return h('div', { class: 'field' },
+      h('span', { text: '作答截止時間（回家作業用，選填）' }),
+      h('div', { class: 'row' }, input, save,
+        w.due_at ? h('button', { type: 'button', class: 'btn-text', text: '改回跟課程一起結束', onclick: function () { setWorksheetDue(w, ''); } }) : null),
+      h('div', { class: 'note', text: w.due_at
+        ? '課程結束填答後，這份學習單還會收到 ' + dueText(w.due_at) + '，時間到自動停止。還在收的時候不能拿來抽獎，也不能清除這堂課的抽獎資料。'
+        : '沒設定時，課程結束填答，學習單也跟著停止。要讓學員回家再交，就設一個截止時間。' }));
+  }
+
   function wsShareBtns(w) {
     var url = wsUrl(w);
     return [
@@ -1164,6 +1193,9 @@
     var linked = courseById(w.course_id);
     if (w.status !== 'open') return h('span', { class: 'pill pill-closed', text: '已關閉' });
     if (!linked) return h('span', { class: 'pill pill-draft', text: '開放中・還沒連課程' });
+    if (w.due_at) return nowMinute() <= w.due_at
+      ? h('span', { class: 'pill pill-open', text: '開放作答・到 ' + dueText(w.due_at) })
+      : h('span', { class: 'pill pill-closed', text: '已過截止時間' });
     if (linked.status === 'closed') return h('span', { class: 'pill pill-closed', text: '課程已結束' });
     return h('span', { class: 'pill pill-open', text: '開放作答中' });
   }
@@ -1192,6 +1224,13 @@
     call('admin_setWorksheetStatus', w.ws_id, status, backToCourse()).then(function (v) {
       wsAfter(v);
       toast(status === 'open' ? (S.view === 'worksheet' && S.qe.dirty ? '已開放作答（題目還沒儲存，學員看到的是上次儲存的版本）' : '已開放作答') : '已關閉作答');
+    }).catch(fail);
+  }
+
+  function setWorksheetDue(w, due) {
+    call('admin_setWorksheetDue', w.ws_id, due, backToCourse()).then(function (v) {
+      wsAfter(v);
+      toast(due ? '作答截止時間：' + dueText(due.replace('T', ' ')) + (w.status === 'open' ? '' : '（記得按「開放作答」）') : '已改回跟課程一起結束');
     }).catch(fail);
   }
 
@@ -1276,6 +1315,7 @@
             wsShareBtns(w),
             wsStatusBtn(w, 'btn btn-sm btn-blue')),
           wsCourseSelect(w),
+          wsDueField(w),
           courseById(w.course_id) && w.linked_count ? h('div', null, h('button', { type: 'button', class: 'btn btn-sm',
             text: '查看這堂課的作答（' + w.linked_count + ' 份）', onclick: function () { openWorksheetResponses(w.ws_id, w.course_id); } })) : null)),
       h('div', { class: 'tpl-main', style: 'max-width:900px' },
@@ -1310,8 +1350,11 @@
   // 課程詳情最下面的學習單區塊
   function courseWorksheetCard(c, list) {
     var others = S.data.worksheets.filter(function (w) { return w.course_id !== c.course_id; });
-    var pick = h('select', { class: 'input', 'aria-label': '把學習單連到這堂課', disabled: c.status === 'closed' },
-      h('option', { value: '', text: c.status === 'closed' ? '課程已結束填答，不能再連學習單' : '＋ 把學習單連到這堂課…' }),
+    // 已結束的課只能連回家作業（設了截止時間、還在收的學習單）
+    if (c.status === 'closed') others = c.raffle_cleared_at ? [] : others.filter(wsCollecting);
+    var pick = h('select', { class: 'input', 'aria-label': '把學習單連到這堂課', disabled: !others.length },
+      h('option', { value: '', text: others.length ? '＋ 把學習單連到這堂課…'
+        : c.status === 'closed' ? '課程已結束；設了作答截止時間的學習單才能連過來' : '沒有其他學習單可以連' }),
       others.map(function (w) {
         var cur = courseById(w.course_id);
         return h('option', { value: w.ws_id, text: w.title + (cur ? '（目前連在 ' + cur.date.slice(5).replace('-', '/') + ' ' + cur.title + '）' : '') });
@@ -2097,7 +2140,7 @@
   /** 目前勾選的名單：總筆數與還能抽的筆數 */
   function poolOf(r) {
     var keys = S.raffleSel ? S.raffleSel.keys : r.selected;
-    return r.sources.filter(function (s) { return keys.indexOf(s.key) >= 0; }).reduce(function (a, s) {
+    return r.sources.filter(function (s) { return !s.due && keys.indexOf(s.key) >= 0; }).reduce(function (a, s) {
       return { total: a.total + s.total, eligible: a.eligible + s.eligible };
     }, { total: 0, eligible: 0 });
   }
@@ -2107,8 +2150,8 @@
     return h('div', { class: 'sources', role: 'group', 'aria-label': '抽獎名單' },
       h('span', { class: 'sources-label', text: '從哪些名單抽：' }),
       r.sources.map(function (s) {
-        var on = S.raffleSel.keys.indexOf(s.key) >= 0;
-        var box = h('input', { type: 'checkbox', disabled: S.drawing });
+        var on = !s.due && S.raffleSel.keys.indexOf(s.key) >= 0;
+        var box = h('input', { type: 'checkbox', disabled: S.drawing || !!s.due });
         box.checked = on;
         box.addEventListener('change', function () {
           var keys = S.raffleSel.keys.filter(function (k) { return k !== s.key; });
@@ -2117,7 +2160,7 @@
           renderRaffle();
         });
         return h('label', { class: 'source' + (on ? ' on' : '') }, box,
-          h('span', { text: s.label }), h('span', { class: 'num', text: s.eligible + ' / ' + s.total }));
+          h('span', { text: s.label }), h('span', { class: 'num', text: s.due ? '收件到 ' + dueText(s.due) : s.eligible + ' / ' + s.total }));
       }),
       h('span', { class: 'sources-hint', text: '數字＝還能抽／全部。每份名單各算一次，同一人只會中一次。' }));
   }
@@ -2142,7 +2185,11 @@
     renderRaffle();
     var prize = S.raffle.raffle.prizes.filter(function (p) { return p.name === S.prize; })[0];
     var n = drawCount(prize, S.raffle.raffle);
-    call('admin_draw', S.raffle.course.course_id, S.prize, S.raffleSel.keys, n).then(function (res) {
+    // 還在收作答的學習單不送（勾選畫面已經停用，這裡再保險一次）
+    var keys = S.raffleSel.keys.filter(function (k) {
+      return !S.raffle.raffle.sources.some(function (s) { return s.key === k && s.due; });
+    });
+    call('admin_draw', S.raffle.course.course_id, S.prize, keys, n).then(function (res) {
       S.raffle = { course: res.course, raffle: res.raffle };
       S.reveal = { prize: res.winner.prize, nos: res.winners.map(function (w) { return w.no; }) };
       if (res.short) toast('勾選的名單只剩 ' + res.winners.length + ' 位可以抽，還有 ' + res.short + ' 份沒抽出', true);

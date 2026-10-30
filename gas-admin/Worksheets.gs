@@ -20,7 +20,8 @@ function worksheetsSummary_() {
     return {
       ws_id: r.ws_id, code: r.code, title: r.title, intro: r.intro, status: r.status, course_id: r.course_id,
       questions: parseJson_(r.questions_json, []), response_count: count[r.ws_id] || 0,
-      linked_count: linked[r.ws_id + '|' + r.course_id] || 0, created_at: r.created_at, updated_at: r.updated_at
+      linked_count: linked[r.ws_id + '|' + r.course_id] || 0, created_at: r.created_at, updated_at: r.updated_at,
+      due_at: wsDue_(r)
     };
   }).sort(function (a, b) { return b.created_at.localeCompare(a.created_at); });
 }
@@ -33,7 +34,8 @@ function courseWorksheets_(courseId) {
   });
   return table_('worksheets').rows.filter(function (w) { return w.course_id === courseId || count[w.ws_id]; })
     .map(function (w) {
-      return { ws_id: w.ws_id, code: w.code, title: w.title, status: w.status, linked: w.course_id === courseId, count: count[w.ws_id] || 0 };
+      return { ws_id: w.ws_id, code: w.code, title: w.title, status: w.status, linked: w.course_id === courseId, count: count[w.ws_id] || 0,
+        due_at: wsDue_(w) };
     });
 }
 
@@ -77,7 +79,10 @@ function admin_linkWorksheet(wsId, courseId, backTo) {
     var row = worksheetRow_(t, wsId);
     if (courseId) {
       var c = rowById_(table_('courses'), courseId);
-      if (c.status === 'closed') throw new Error('這堂課已經結束填答，不能再連學習單');
+      if (c.raffle_cleared_at) throw new Error('這堂課的抽獎資料已經清除，不能再連學習單');
+      if (c.status === 'closed' && !wsCollecting_(row)) {
+        throw new Error('這堂課已經結束填答；要當回家作業連過去，請先在學習單編輯頁設定作答截止時間');
+      }
     }
     updateRow_(t, row, { course_id: courseId || '', updated_at: now_() });
     audit_('link_worksheet', courseId || row.course_id, row.title + (courseId ? ' 連到這堂課' : ' 取消連結'));
@@ -94,6 +99,38 @@ function admin_setWorksheetStatus(wsId, status, backTo) {
     audit_(status === 'open' ? 'open_worksheet' : 'close_worksheet', row.course_id, row.title);
     return view_(backTo || null, { ws_id: wsId });
   });
+}
+
+/**
+ * 作答截止時間（回家作業用）。due 是 yyyy-MM-ddTHH:mm 或 yyyy-MM-dd HH:mm；空白＝跟課程一起結束。
+ * 設了之後課程結束填答也照收，時間到就停止。
+ */
+function admin_setWorksheetDue(wsId, due, backTo) {
+  var d = String(due || '').trim().replace('T', ' ').slice(0, 16);
+  if (d && !/^\d{4}-\d{2}-\d{2} ([01]\d|2[0-3]):[0-5]\d$/.test(d)) throw new Error('截止時間格式不正確');
+  return withLock_(function () {
+    var t = table_('worksheets');
+    var row = worksheetRow_(t, wsId);
+    var c = row.course_id && table_('courses').rows.filter(function (r) { return r.course_id === row.course_id; })[0];
+    if (d && c && c.raffle_cleared_at && d >= now_('yyyy-MM-dd HH:mm')) {
+      throw new Error('連到的課程已經清除抽獎資料，不能再延長作答；請先改連到其他課程');
+    }
+    updateRow_(t, row, { due_at: d, updated_at: now_() });
+    audit_('set_worksheet_due', row.course_id, row.title + (d ? ' 作答截止 ' + d : ' 改回跟課程一起結束'));
+    return view_(backTo || null, { ws_id: wsId });
+  });
+}
+
+/** 學習單的作答截止時間 yyyy-MM-dd HH:mm（當分鐘內還收）；空白＝跟課程一起結束 */
+function wsDue_(w) {
+  var d = String(w.due_at || '');
+  return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(d) ? d.slice(0, 16) : '';
+}
+
+/** 開放中、設了截止時間、還沒到期：課程結束後也照收，抽獎和清除要等它截止 */
+function wsCollecting_(w) {
+  var d = wsDue_(w);
+  return w.status === 'open' && !!d && now_('yyyy-MM-dd HH:mm') <= d;
 }
 
 function admin_deleteWorksheet(wsId) {

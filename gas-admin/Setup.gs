@@ -13,7 +13,7 @@ var SCHEMA = {
   responses: ['response_id', 'course_id', 'template_version', 'submitted_at', 'answers_json'],
   raffle_entries: ['entry_id', 'course_id', 'name', 'email', 'consent_at', 'created_at', 'prize', 'drawn_at', 'email_hash'],
   audit_log: ['time', 'action', 'course_id', 'detail'],
-  worksheets: ['ws_id', 'code', 'title', 'intro', 'status', 'course_id', 'questions_json', 'max_q', 'created_at', 'updated_at'],
+  worksheets: ['ws_id', 'code', 'title', 'intro', 'status', 'course_id', 'questions_json', 'max_q', 'created_at', 'updated_at', 'due_at'],
   ws_responses: ['response_id', 'ws_id', 'course_id', 'submitted_at', 'name', 'email', 'email_hash', 'answers_json', 'prize', 'drawn_at']
 };
 
@@ -241,6 +241,18 @@ function runApiTests_(url, check) {
     admin_setStatus(id, 'closed');
     check('結束後不能再填答', call({ action: 'submitResponse', survey_code: code, answers: good, elapsed: 10 }).error === 'CLOSED');
     check('課程結束後學習單也停止作答', wsCall({ name: '戊', email: 'v@test.com', answers: { q1: 'x' } }).error === 'CLOSED');
+    // 回家作業：設了作答截止時間，課程結束後照收；還在收的時候不能抽、不能清除
+    var tomorrow = new Date(Date.now() + 86400000);
+    admin_setWorksheetDue(wsId, Utilities.formatDate(tomorrow, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm').replace(' ', 'T'));
+    var homework = call({ action: 'getWorksheet', code: wsCode });
+    check('設了截止時間：課程結束後學習單照常開放', homework.state === 'open' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(homework.due_at));
+    check('設了截止時間：課程結束後還能交', wsCall({ name: '戊', email: 'v@test.com', answers: { q1: '回家寫的' } }).ok === true);
+    check('還在收作答的學習單不能拿來抽', throws_(function () { admin_draw(id, '測試獎', ['ws:' + wsId]); }));
+    check('還在收作答時不能清除抽獎資料', throws_(function () { admin_clearRaffle(id, '清除'); }));
+    admin_setWorksheetDue(wsId, now_('yyyy-MM-dd') + ' 00:00');
+    var expired = call({ action: 'getWorksheet', code: wsCode });
+    check('過了截止時間就停止作答', expired.state === 'closed' && expired.expired === true &&
+      wsCall({ name: '己', email: 'u@test.com', answers: { q1: 'x' } }).error === 'CLOSED');
     check('沒勾名單不能抽', throws_(function () { admin_draw(id, '測試獎', []); }));
     var two = admin_draw(id, '測試獎', ['survey'], 2);
     check('一次抽 2 位：名次連號、不是同一人', two.winners.length === 2 && two.winners[0].no === 1 && two.winners[1].no === 2 &&
@@ -257,14 +269,14 @@ function runApiTests_(url, check) {
     var again = admin_getRaffle(id).raffle;
     check('重新讀取只顯示已存結果', again.prizes[0].winners.length === 3);
     var batch = admin_draw(id, '一次抽獎', ['survey', 'ws:' + wsId], 99);
-    check('一次抽：名單不夠時抽到用完為止，同一人只算一次', batch.winners.length === 1 && batch.short === 9, batch.winners.length + ' 位');
+    check('一次抽：名單不夠時抽到用完為止，同一人只算一次', batch.winners.length === 2 && batch.short === 8, batch.winners.length + ' 位');
 
     admin_clearRaffle(id, '清除');
     check('清除後試算表沒有這堂課的姓名與 Email', countRows_('raffle_entries', id) === 0 &&
       table_('ws_responses').rows.filter(function (r) { return r.course_id === id && (r.name || r.email); }).length === 0);
-    check('清除後學習單答案還在', table_('ws_responses').rows.filter(function (r) { return r.course_id === id && r.answers_json; }).length === 2);
+    check('清除後學習單答案還在', table_('ws_responses').rows.filter(function (r) { return r.course_id === id && r.answers_json; }).length === 3);
     var after = findCourse_(id);
-    check('清除後保留登記人數與得獎人數', after.entry_count === 3 && after.winner_count === 4);
+    check('清除後保留登記人數與得獎人數', after.entry_count === 3 && after.winner_count === 5);
   } finally {
     removeTestCourse_(id);
   }

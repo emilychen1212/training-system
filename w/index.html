@@ -85,12 +85,22 @@
       ws = res;
       document.getElementById('title').textContent = res.title;
       document.getElementById('meta').textContent = [TS.formatDate(res.course_date), res.course_title].filter(Boolean).join('・');
+      if (res.expired) return state('學習單已截止', '作答期限是 ' + dueText(res.due_at) + '，已經停止收件，謝謝你。');
       document.title = res.title + '｜學習單';
       if (res.state === 'no_course') return state('學習單還沒開放', '講師開放後就能作答，請稍後再試一次。', reloadBtn());
       if (res.state === 'closed') return state('學習單已停止作答', '這份學習單目前沒有開放作答，謝謝你的參與！');
+      if (res.due_at) document.getElementById('meta').textContent += '・作答期限 ' + dueText(res.due_at);
       if (TS.store.get(doneKey())) return showDone(true);
       renderForm();
     });
+
+    /** 2026-11-06 23:59 → 11/6（五）23:59 */
+    function dueText(d) {
+      var p = String(d || '').match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}:\d{2})/);
+      if (!p) return d;
+      var day = '日一二三四五六'.charAt(new Date(+p[1], +p[2] - 1, +p[3]).getDay());
+      return +p[2] + '/' + +p[3] + '（' + day + '）' + p[4];
+    }
 
     function renderForm() {
       var progressBar = h('i');

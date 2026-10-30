@@ -185,8 +185,17 @@ function worksheetState_(ws) {
   if (!ws.course_id) return { state: 'no_course' };
   var c = readRows_('courses').filter(function (r) { return r.course_id === ws.course_id; })[0];
   if (!c) return { state: 'no_course' };
+  // 設了作答截止時間（回家作業）：看截止時間，不跟著課程結束
+  var due = wsDue_(ws);
+  if (due) return now_().slice(0, 16) <= due ? { state: 'open', course: c, due: due } : { state: 'closed', course: c, due: due, expired: true };
   if (c.status === 'closed') return { state: 'closed', course: c };
   return { state: 'open', course: c };
+}
+
+/** 學習單的作答截止時間 yyyy-MM-dd HH:mm（當分鐘內還收）；空白＝跟課程一起結束 */
+function wsDue_(ws) {
+  var d = String(ws.due_at || '');
+  return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(d) ? d.slice(0, 16) : '';
 }
 
 function getWorksheet_(req) {
@@ -197,6 +206,8 @@ function getWorksheet_(req) {
     out.course_title = st.course.title;
     out.course_date = st.course.date;
   }
+  if (st.due) out.due_at = st.due;
+  if (st.expired) out.expired = true;
   if (st.state === 'open') out.questions = JSON.parse(ws.questions_json || '[]');
   return out;
 }
